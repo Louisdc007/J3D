@@ -1,0 +1,38 @@
+# --- Python ---
+# Fichiers compilés automatiquement par Python (inutiles sur GitHub)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Environnements Virtuels ---
+# Si tu utilises venv ou pipenv plus tard
+venv/
+env/
+.env
+.venv/
+
+# --- macOS ---
+# Fichiers système cachés de Mac (très important !)
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# --- Windows ---
+# Fichiers système Windows (pour tes collaborateurs)
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# --- VS Code ---
+# Réglages locaux de ton éditeur de code
+.vscode/
+
+# --- Pygame / Build ---
+# Dossiers créés si tu transformes ton jeu en .exe plus tard
+build/
+dist/
+*.spec
+
+# --- Spécifique au Jeu Greed ---
+# On ne veut pas envoyer tes sauvegardes de test sur GitHub
+data/saves/*.json
