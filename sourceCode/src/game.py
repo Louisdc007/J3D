@@ -3,6 +3,7 @@ import sys
 from settings import *
 from entities.player import *
 from camera import CameraGroup
+from tile import Tile
 
 #uniquement pour le test
 import random
@@ -14,18 +15,8 @@ class Game() :
         pygame.display.set_caption(GAME_NAME)
         self.clock = pygame.time.Clock()
         self.visible_sprites = CameraGroup()
-        self.player = Player((WIDTH//2, HEIGHT//2), [self.visible_sprites])
-
-
-        # Test de la caméra : on crée des obstacles aléatoires
-        for i in range(20):
-            x = random.randint(0, 2000)
-            y = random.randint(0, 2000)
-            
-            sprite = pygame.sprite.Sprite(self.visible_sprites)
-            sprite.image = pygame.Surface((TILE_SIZE, TILE_SIZE))
-            sprite.image.fill('gray')
-            sprite.rect = sprite.image.get_rect(topleft=(x,y))
+        self.obstacle_sprites = pygame.sprite.Group()
+        self.create_map()
 
     def events(self):
         events = pygame.event.get()
@@ -40,6 +31,14 @@ class Game() :
         pygame.display.flip()
         
 
+    def create_map(self):
+        for x, l in enumerate(WORLD_MAP): # enumerate donne l'index et l'element
+            for y, e in enumerate(l):
+                if e == 'x':
+                    Tile((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites, self.obstacle_sprites])
+                elif e == 'p':
+                    self.player = Player((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites], self.obstacle_sprites)
+
     def update(self):
         self.visible_sprites.update()
 
@@ -49,5 +48,4 @@ class Game() :
             self.update()
             self.draw()
             self.clock.tick(FPS)
-    
     
