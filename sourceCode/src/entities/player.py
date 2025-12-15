@@ -18,6 +18,7 @@ class Player(pygame.sprite.Sprite):
         self.attacking = False
         self.attack_cooldown = 400
         self.attack_time = 0
+        self.current_weapon = None
 
     def input(self):
         if not self.attacking:
@@ -59,14 +60,13 @@ class Player(pygame.sprite.Sprite):
             if aim_vect.magnitude() != 0:
                 aim_vect = aim_vect.normalize()
             self.current_weapon = Weapon(self, self.groups(), aim_vect)
-            print(f'attaque vers : {aim_vect.x} {aim_vect.y}')
 
     def cooldowns(self):
         current_time = pygame.time.get_ticks()
         if self.attacking:
             if current_time - self.attack_time >= self.attack_cooldown:
                 self.attacking = False
-                self.current_weapon.kill() # si tu utilises vscode tu vas surement voir du rouge ici, c'est juste que vscode est débile
+                self.current_weapon.kill() # type: ignore -> vs code pense que current_weapon est a None et qu'il n'a pas d'atribut kill mais en fait il est bete
                 self.current_weapon = None
 
     def collision(self, direction : str): # un texte pour indiquer une droite de mouvement
