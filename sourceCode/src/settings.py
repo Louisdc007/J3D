@@ -10,20 +10,20 @@ GAME_NAME = "Greed"
 
 WORLD_MAP = [
     'xxxxxxxxxxxxxxxxxxxx',
-    'x.                 x',
+    'x.            m    x',
     'x.  xxx            x',
     'x.  xxx            x',
     'x.  xxx            x',
-    'x.     xxxxxxxxx   x',
+    'x.  m  xxxxxxxxx   x',
     'x.     xxxxxxxxx   x',
     'x.  xxx            x',
     'x.  xxx    p       x',
     'x.  xxx            x',
     'x.                 x',
     'x.                 x',
+    'x.         m       x',
     'x.                 x',
     'x.                 x',
-    'x.                 x',
-    'x.                 x',
+    'x. m               x',
     'xxxxxxxxxxxxxxxxxxxx'
 ]

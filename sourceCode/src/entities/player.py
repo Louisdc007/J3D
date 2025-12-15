@@ -18,6 +18,7 @@ class Player(pygame.sprite.Sprite):
         self.attacking = False
         self.attack_cooldown = 400
         self.attack_time = 0
+        self.current_weapon = None
 
     def input(self):
         if not self.attacking:
@@ -59,7 +60,6 @@ class Player(pygame.sprite.Sprite):
             if aim_vect.magnitude() != 0:
                 aim_vect = aim_vect.normalize()
             self.current_weapon = Weapon(self, self.groups(), aim_vect)
-            print(f'attaque vers : {aim_vect.x} {aim_vect.y}')
 
     def cooldowns(self):
         current_time = pygame.time.get_ticks()
