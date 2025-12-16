@@ -48,11 +48,17 @@ class Game() :
 
         for enemy in self.attackable_sprites:
             enemy.enemy_update(self.player)
+            if pygame.sprite.collide_rect(enemy, self.player):
+                self.player.get_damage(10, enemy.rect.center)
 
         if self.player.current_weapon:
             hitted_enemies = pygame.sprite.spritecollide(self.player.current_weapon, self.attackable_sprites, False) #type: ignore
             for e in hitted_enemies:
-                e.get_damage()
+                e.get_damage(self.player.rect.center)
+        
+        if self.player.health <= 0:
+            pygame.quit()
+            sys.exit()
 
     def run(self):
         while True:
