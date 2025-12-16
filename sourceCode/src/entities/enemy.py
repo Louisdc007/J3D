@@ -24,12 +24,16 @@ class Enemy(pygame.sprite.Sprite):
         self.start_time = 0
         self.duration = 0
 
-    def get_damage(self):
+        self.knockback = [0.0, 0.0]
+
+    def get_damage(self, player_center):
         if self.vulnerable:
             self.health -= 1
             self.vulnerable = False
             self.hit_time = pygame.time.get_ticks()
             self.image.fill('white')
+
+            self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(player_center)).normalize() * 20)
         if self.health <= 0:
             self.kill()
     
@@ -88,17 +92,28 @@ class Enemy(pygame.sprite.Sprite):
 
         self.move(self.speed)
 
+    def reduce_knockback(self):
+        self.knockback[0] *= 0.8
+        if self.knockback[0] < 0.5:
+            self.knockback[0] = 0
+        
+        self.knockback[1] *= 0.8
+        if self.knockback[1] < 0.5:
+            self.knockback[1] = 0
+
+
     def move(self, speed):
         if self.direction.magnitude() != 0:
             self.direction= self.direction.normalize()
-        self.pos.x += self.direction.x * speed
+        self.pos.x += (self.direction.x * speed) + self.knockback[0]
         self.rect.x = int(self.pos.x)
         self.collision('horizontal')
-        self.pos.y += self.direction.y * speed
+        self.pos.y += (self.direction.y * speed) + self.knockback[1]
         self.rect.y = int(self.pos.y)
         self.collision('vertical')
 
     def update(self):
+        self.reduce_knockback()
         if not self.vulnerable:
             if pygame.time.get_ticks() - self.hit_time >= 400:
                 self.image.fill('red')
