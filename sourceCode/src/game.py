@@ -4,6 +4,7 @@ from settings import *
 from entities.player import *
 from camera import CameraGroup
 from tile import Tile
+from entities.enemy import Enemy
 
 #uniquement pour le test
 import random
@@ -16,6 +17,7 @@ class Game() :
         self.clock = pygame.time.Clock()
         self.visible_sprites = CameraGroup()
         self.obstacle_sprites = pygame.sprite.Group()
+        self.attackable_sprites = pygame.sprite.Group()
         self.create_map()
 
     def events(self):
@@ -38,9 +40,25 @@ class Game() :
                     Tile((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites, self.obstacle_sprites])
                 elif e == 'p':
                     self.player = Player((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites], self.obstacle_sprites)
+                elif e == 'm':
+                    Enemy([self.visible_sprites, self.attackable_sprites], (x * TILE_SIZE, y * TILE_SIZE), self.obstacle_sprites)
 
     def update(self):
         self.visible_sprites.update()
+
+        for enemy in self.attackable_sprites:
+            enemy.enemy_update(self.player)
+            if pygame.sprite.collide_rect(enemy, self.player):
+                self.player.get_damage(10, enemy.rect.center)
+
+        if self.player.current_weapon:
+            hitted_enemies = pygame.sprite.spritecollide(self.player.current_weapon, self.attackable_sprites, False) #type: ignore
+            for e in hitted_enemies:
+                e.get_damage(self.player.rect.center)
+        
+        if self.player.health <= 0:
+            pygame.quit()
+            sys.exit()
 
     def run(self):
         while True:

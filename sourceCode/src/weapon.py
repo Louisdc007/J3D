@@ -3,7 +3,7 @@ import pygame
 class Weapon(pygame.sprite.Sprite):
     def __init__(self, player, groups, direction):
         super().__init__(groups)
-        self.image = pygame.Surface((80, 20))
+        self.image = pygame.Surface((100, 20))
         self.image.fill('blue')
 
         distance = 30
