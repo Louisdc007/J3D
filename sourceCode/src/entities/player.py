@@ -28,8 +28,9 @@ class Player(pygame.sprite.Sprite):
         self.last_dash_time = 0
         self.vulnerable = True
         self.health = 100
+        self.max_health = 100
         self.invincibility_duration = 200
-        self.knockback = [0.0, 0.0]
+        self.knockback = pygame.math.Vector2(0, 0)
 
     def input(self):
         if not self.attacking:
@@ -108,61 +109,77 @@ class Player(pygame.sprite.Sprite):
                 self.vulnerable = True
                 self.image.fill('white')
 
-    def collision(self, direction : str): # un texte pour indiquer une droite de mouvement
-        if direction == 'horizontal':
-            for sprite in self.obstacle_sprites:
-                if sprite.rect.colliderect(self.rect):
-                    if self.direction.x > 0:
-                        self.rect.right = sprite.rect.left
-                        self.pos.x = self.rect.x
-                    elif self.direction.x < 0:
-                        self.rect.left = sprite.rect.right
-                        self.pos.x = self.rect.x
-        elif direction == 'vertical':
-            for sprite in self.obstacle_sprites:
-                if sprite.rect.colliderect(self.rect):
-                    if self.direction.y > 0:
-                        self.rect.bottom = sprite.rect.top
-                        self.pos.y = self.rect.y
-                    elif self.direction.y < 0:
-                        self.rect.top = sprite.rect.bottom
-                        self.pos.y = self.rect.y
+    def collision(self, direction, speed):
+            if direction == 'horizontal':
+                for sprite in self.obstacle_sprites:
+                    if sprite.rect.colliderect(self.rect):
+                        if speed > 0: 
+                            self.rect.right = sprite.rect.left
+                            self.pos.x = self.rect.x
+                        if speed < 0:
+                            self.rect.left = sprite.rect.right
+                            self.pos.x = self.rect.x
+
+            if direction == 'vertical':
+                for sprite in self.obstacle_sprites:
+                    if sprite.rect.colliderect(self.rect):
+                        if speed > 0: 
+                            self.rect.bottom = sprite.rect.top
+                            self.pos.y = self.rect.y
+                        if speed < 0:
+                            self.rect.top = sprite.rect.bottom
+                            self.pos.y = self.rect.y
     
     def move(self, speed):
-        if self.direction.magnitude() != 0:
-            self.direction= self.direction.normalize()
-        self.pos.x += self.direction.x * speed + self.knockback[0]
-        self.rect.x = int(self.pos.x)
-        self.collision('horizontal')
-        self.pos.y += self.direction.y * speed + self.knockback[1]
-        self.rect.y = int(self.pos.y)
-        self.collision('vertical')
 
-    def get_damage(self, amount, enemy_rect):
+        if self.direction.magnitude() != 0:
+            self.direction = self.direction.normalize()
+
+        dx = self.direction.x * speed + self.knockback.x
+        self.pos.x += dx
+        self.rect.x = int(self.pos.x)
+
+        self.collision('horizontal', dx)
+
+        dy = self.direction.y * speed + self.knockback.y
+        self.pos.y += dy
+        self.rect.y = int(self.pos.y)
+        self.collision('vertical', dy)
+
+    def get_damage(self, amount, origin_center):
         if self.vulnerable:
             self.health -= amount
             self.vulnerable = False
             self.hurt_time = pygame.time.get_ticks()
-            print(self.health)
-            self.image.fill('gray')
+            self.image.fill('gray') 
+            
+            my_pos = pygame.math.Vector2(self.rect.center)
+            other_pos = pygame.math.Vector2(origin_center)
+            
 
-            self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(enemy_rect)).normalize() * 20)
+            diff = my_pos - other_pos
+
+            if diff.magnitude() != 0:
+                direction = diff.normalize()
+            else:
+                direction = pygame.math.Vector2(1, 0) 
+            self.knockback = direction * 20
 
 
     def reduce_knockback(self):
-        self.knockback[0] *= 0.8
-        if self.knockback[0] < 0.5:
-            self.knockback[0] = 0
-        
-        self.knockback[1] *= 0.8
-        if self.knockback[1] < 0.5:
-            self.knockback[1] = 0
+
+        if self.knockback.magnitude() != 0:
+            self.knockback *= 0.8 
+
+            if self.knockback.magnitude() < 0.5:
+                self.knockback = pygame.math.Vector2(0, 0)
 
 
     def update(self):
         self.reduce_knockback()
         self.input()
         self.cooldowns()
+        
         if self.is_dashing:
             self.move(self.dash_speed)
         else:

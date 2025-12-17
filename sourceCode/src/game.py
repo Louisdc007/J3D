@@ -5,6 +5,8 @@ from entities.player import *
 from camera import CameraGroup
 from tile import Tile
 from entities.enemy import Enemy
+from ui import UI
+from dungeon import DungeonGenerator
 
 #uniquement pour le test
 import random
@@ -19,6 +21,7 @@ class Game() :
         self.obstacle_sprites = pygame.sprite.Group()
         self.attackable_sprites = pygame.sprite.Group()
         self.create_map()
+        self.ui = UI()
 
     def events(self):
         events = pygame.event.get()
@@ -30,10 +33,14 @@ class Game() :
     def draw(self) :
         self.screen.fill('black')
         self.visible_sprites.custom_draw(self.player)
+        self.ui.display(self.player)
         pygame.display.flip()
         
 
     def create_map(self):
+        """
+        on en a finit de ce truc pourri, place a la gestion automatique
+
         for x, l in enumerate(WORLD_MAP): # enumerate donne l'index et l'element
             for y, e in enumerate(l):
                 if e == 'x':
@@ -42,6 +49,22 @@ class Game() :
                     self.player = Player((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites], self.obstacle_sprites)
                 elif e == 'm':
                     Enemy([self.visible_sprites, self.attackable_sprites], (x * TILE_SIZE, y * TILE_SIZE), self.obstacle_sprites)
+        """
+
+        dungeon = DungeonGenerator()
+        map_data, player_spawn = dungeon.generate()
+
+        for x, l in enumerate(map_data):
+            for y, e in enumerate(l):
+                if e == 'x':
+                    Tile((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites, self.obstacle_sprites])
+                elif e == 'p':
+                    self.player = Player((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites], self.obstacle_sprites)
+                elif e == 'm':
+                    Enemy([self.visible_sprites, self.attackable_sprites], (x * TILE_SIZE, y * TILE_SIZE), self.obstacle_sprites)
+                
+        self.player = Player((player_spawn[1] * TILE_SIZE, player_spawn[0] * TILE_SIZE), [self.visible_sprites], self.obstacle_sprites)
+
 
     def update(self):
         self.visible_sprites.update()
