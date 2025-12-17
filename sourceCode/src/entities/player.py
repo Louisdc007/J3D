@@ -27,7 +27,8 @@ class Player(pygame.sprite.Sprite):
         self.dash_cooldown = 1000
         self.last_dash_time = 0
         self.vulnerable = True
-        self.health = 10000
+        self.health = 100
+        self.max_health = 100
         self.invincibility_duration = 200
         self.knockback = pygame.math.Vector2(0, 0)
 

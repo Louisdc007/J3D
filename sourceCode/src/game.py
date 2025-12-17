@@ -5,6 +5,7 @@ from entities.player import *
 from camera import CameraGroup
 from tile import Tile
 from entities.enemy import Enemy
+from ui import UI
 
 #uniquement pour le test
 import random
@@ -19,6 +20,7 @@ class Game() :
         self.obstacle_sprites = pygame.sprite.Group()
         self.attackable_sprites = pygame.sprite.Group()
         self.create_map()
+        self.ui = UI()
 
     def events(self):
         events = pygame.event.get()
@@ -30,6 +32,7 @@ class Game() :
     def draw(self) :
         self.screen.fill('black')
         self.visible_sprites.custom_draw(self.player)
+        self.ui.display(self.player)
         pygame.display.flip()
         
 
