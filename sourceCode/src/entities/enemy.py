@@ -24,7 +24,7 @@ class Enemy(pygame.sprite.Sprite):
         self.start_time = 0
         self.duration = 0
 
-        self.knockback = [0.0, 0.0]
+        self.knockback = pygame.math.Vector2(0, 0)
 
     def get_damage(self, player_center):
         if self.vulnerable:
@@ -33,7 +33,7 @@ class Enemy(pygame.sprite.Sprite):
             self.hit_time = pygame.time.get_ticks()
             self.image.fill('white')
 
-            self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(player_center)).normalize() * 20)
+            self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(player_center)).normalize() * 30)
         if self.health <= 0:
             self.kill()
     
@@ -59,23 +59,24 @@ class Enemy(pygame.sprite.Sprite):
                     
                     self.direction = new_vect
 
-    def collision(self, direction : str): # un texte pour indiquer une droite de mouvement
+    def collision(self, direction, speed):
         if direction == 'horizontal':
             for sprite in self.obstacle_sprites:
                 if sprite.rect.colliderect(self.rect):
-                    if self.direction.x > 0:
+                    if speed > 0: # On bouge vers la droite (Input ou Recul)
                         self.rect.right = sprite.rect.left
                         self.pos.x = self.rect.x
-                    elif self.direction.x < 0:
+                    if speed < 0: # On bouge vers la gauche
                         self.rect.left = sprite.rect.right
                         self.pos.x = self.rect.x
-        elif direction == 'vertical':
+
+        if direction == 'vertical':
             for sprite in self.obstacle_sprites:
                 if sprite.rect.colliderect(self.rect):
-                    if self.direction.y > 0:
+                    if speed > 0: # On descend
                         self.rect.bottom = sprite.rect.top
                         self.pos.y = self.rect.y
-                    elif self.direction.y < 0:
+                    if speed < 0: # On monte
                         self.rect.top = sprite.rect.bottom
                         self.pos.y = self.rect.y
 
@@ -93,24 +94,29 @@ class Enemy(pygame.sprite.Sprite):
         self.move(self.speed)
 
     def reduce_knockback(self):
-        self.knockback[0] *= 0.8
-        if self.knockback[0] < 0.5:
-            self.knockback[0] = 0
-        
-        self.knockback[1] *= 0.8
-        if self.knockback[1] < 0.5:
-            self.knockback[1] = 0
+
+        self.knockback *= 0.8
+
+        if self.knockback.magnitude() < 0.5:
+            self.knockback = pygame.math.Vector2(0, 0)
 
 
     def move(self, speed):
+        # 1. On calcule la direction voulue (Input)
         if self.direction.magnitude() != 0:
-            self.direction= self.direction.normalize()
-        self.pos.x += (self.direction.x * speed) + self.knockback[0]
+            self.direction = self.direction.normalize()
+
+        dx = self.direction.x * speed + self.knockback.x
+        
+        self.pos.x += dx
         self.rect.x = int(self.pos.x)
-        self.collision('horizontal')
-        self.pos.y += (self.direction.y * speed) + self.knockback[1]
+
+        self.collision('horizontal', dx)
+
+        dy = self.direction.y * speed + self.knockback.y
+        self.pos.y += dy
         self.rect.y = int(self.pos.y)
-        self.collision('vertical')
+        self.collision('vertical', dy)
 
     def update(self):
         self.reduce_knockback()
