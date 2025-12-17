@@ -6,6 +6,7 @@ from camera import CameraGroup
 from tile import Tile
 from entities.enemy import Enemy
 from ui import UI
+from dungeon import DungeonGenerator
 
 #uniquement pour le test
 import random
@@ -37,6 +38,9 @@ class Game() :
         
 
     def create_map(self):
+        """
+        on en a finit de ce truc pourri, place a la gestion automatique
+
         for x, l in enumerate(WORLD_MAP): # enumerate donne l'index et l'element
             for y, e in enumerate(l):
                 if e == 'x':
@@ -45,6 +49,22 @@ class Game() :
                     self.player = Player((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites], self.obstacle_sprites)
                 elif e == 'm':
                     Enemy([self.visible_sprites, self.attackable_sprites], (x * TILE_SIZE, y * TILE_SIZE), self.obstacle_sprites)
+        """
+
+        dungeon = DungeonGenerator()
+        map_data, player_spawn = dungeon.generate()
+
+        for x, l in enumerate(map_data):
+            for y, e in enumerate(l):
+                if e == 'x':
+                    Tile((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites, self.obstacle_sprites])
+                elif e == 'p':
+                    self.player = Player((x * TILE_SIZE, y * TILE_SIZE), [self.visible_sprites], self.obstacle_sprites)
+                elif e == 'm':
+                    Enemy([self.visible_sprites, self.attackable_sprites], (x * TILE_SIZE, y * TILE_SIZE), self.obstacle_sprites)
+                
+        self.player = Player((player_spawn[1] * TILE_SIZE, player_spawn[0] * TILE_SIZE), [self.visible_sprites], self.obstacle_sprites)
+
 
     def update(self):
         self.visible_sprites.update()
