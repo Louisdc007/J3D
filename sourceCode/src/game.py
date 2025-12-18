@@ -1,5 +1,5 @@
-import pygame
-import sys
+#import pygame
+#import sys
 from settings import *
 from entities.player import *
 from camera import CameraGroup
@@ -7,9 +7,6 @@ from tile import Tile
 from entities.enemy import Enemy
 from ui import UI
 from dungeon import DungeonGenerator
-
-#uniquement pour le test
-import random
 
 class Game() :
     def __init__(self) :
