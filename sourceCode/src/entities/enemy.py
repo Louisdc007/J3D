@@ -2,16 +2,24 @@ import pygame
 from settings import *
 import random
 
+from sourceCode.src.settings import MONSTER_DATA
+
+
 class Enemy(pygame.sprite.Sprite):
-    def __init__(self, groups, pos, obstacles):
+    def __init__(self, groups, pos, obstacles, tier):
         super().__init__(groups)
 
+        info = MONSTER_DATA[tier]
+
         self.image = pygame.Surface((TILE_SIZE, TILE_SIZE))
-        self.image.fill('red')
+        self.image.fill(info['color'])
         self.rect = self.image.get_rect(topleft = pos)
 
-        self.health = 3
-        self.speed = 3
+        self.health = info['health']
+        self.speed = info['speed']
+        self.damage = info['damage']
+        self.notice_radius = info['notice_radius']
+        self.loot_table = info['loot']
 
         self.vulnerable = True
         self.hit_time = 0
@@ -33,9 +41,7 @@ class Enemy(pygame.sprite.Sprite):
             self.hit_time = pygame.time.get_ticks()
             self.image.fill('white')
 
-            self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(player_center)).normalize() * 30)
-        if self.health <= 0:
-            self.kill()
+            self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(player_center)).normalize() * 15)
     
     def patrol(self):
         current_time = pygame.time.get_ticks()

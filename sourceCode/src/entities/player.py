@@ -1,9 +1,12 @@
 import pygame
 from settings import *
 from weapon import Weapon
-#test
+
 # juste pour quitter avec echap
 import sys
+
+from sourceCode.src.settings import HEIGHT
+
 
 class Player(pygame.sprite.Sprite):
     def __init__(self, pos, groups, obstacles):
@@ -31,6 +34,9 @@ class Player(pygame.sprite.Sprite):
         self.max_health = 100
         self.invincibility_duration = 200
         self.knockback = pygame.math.Vector2(0, 0)
+        self.inventory = {'gold' : 0, 'iron' : 0, 'xp' : 0}
+        self.level = 1
+        self.xp_to_next_level = 10
 
     def input(self):
         if not self.attacking:
@@ -129,7 +135,7 @@ class Player(pygame.sprite.Sprite):
                         if speed < 0:
                             self.rect.top = sprite.rect.bottom
                             self.pos.y = self.rect.y
-    
+
     def move(self, speed):
 
         if self.direction.magnitude() != 0:
@@ -174,11 +180,16 @@ class Player(pygame.sprite.Sprite):
             if self.knockback.magnitude() < 0.5:
                 self.knockback = pygame.math.Vector2(0, 0)
 
-
     def update(self):
         self.reduce_knockback()
         self.input()
         self.cooldowns()
+
+        if self.inventory['xp'] >= self.xp_to_next_level:
+            self.level += 1
+            self.inventory['xp'] -= self.xp_to_next_level
+            self.xp_to_next_level *= 1.5
+            self.health = self.max_health
         
         if self.is_dashing:
             self.move(self.dash_speed)
