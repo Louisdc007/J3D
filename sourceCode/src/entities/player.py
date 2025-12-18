@@ -1,7 +1,7 @@
 import pygame
 from settings import *
 from weapon import Weapon
-#test
+
 # juste pour quitter avec echap
 import sys
 
@@ -31,6 +31,7 @@ class Player(pygame.sprite.Sprite):
         self.max_health = 100
         self.invincibility_duration = 200
         self.knockback = pygame.math.Vector2(0, 0)
+        self.inventory = {'gold' : 0, 'iron' : 0, 'xp' : 0}
 
     def input(self):
         if not self.attacking:

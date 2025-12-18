@@ -34,8 +34,6 @@ class Enemy(pygame.sprite.Sprite):
             self.image.fill('white')
 
             self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(player_center)).normalize() * 30)
-        if self.health <= 0:
-            self.kill()
     
     def patrol(self):
         current_time = pygame.time.get_ticks()
