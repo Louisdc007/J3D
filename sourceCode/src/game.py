@@ -68,7 +68,7 @@ class Game() :
                 enemy_x = room.center[1] * TILE_SIZE
                 enemy_y = room.center[0] * TILE_SIZE
 
-                Enemy([self.visible_sprites, self.attackable_sprites], (enemy_x, enemy_y), self.obstacle_sprites)
+                Enemy([self.visible_sprites, self.attackable_sprites], (enemy_x, enemy_y), self.obstacle_sprites, 'tier1')
 
 
     def update(self):
