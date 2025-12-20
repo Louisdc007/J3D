@@ -33,6 +33,7 @@ class Enemy(pygame.sprite.Sprite):
         self.duration = 0
 
         self.knockback = pygame.math.Vector2(0, 0)
+        self.base_color = info['color']
 
     def get_damage(self, player_center):
         if self.vulnerable:
@@ -41,7 +42,14 @@ class Enemy(pygame.sprite.Sprite):
             self.hit_time = pygame.time.get_ticks()
             self.image.fill('white')
 
-            self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(player_center)).normalize() * 15)
+            my_pos = pygame.math.Vector2(self.rect.center)
+            other_pos = pygame.math.Vector2(player_center)
+            diff = my_pos - other_pos
+
+            if diff.magnitude() != 0:
+                self.knockback = diff.normalize() * 15
+            else:
+                self.knockback = pygame.math.Vector2(0, 0)
     
     def patrol(self):
         current_time = pygame.time.get_ticks()
@@ -128,5 +136,5 @@ class Enemy(pygame.sprite.Sprite):
         self.reduce_knockback()
         if not self.vulnerable:
             if pygame.time.get_ticks() - self.hit_time >= 400:
-                self.image.fill('red')
+                self.image.fill(self.base_color)
                 self.vulnerable = True

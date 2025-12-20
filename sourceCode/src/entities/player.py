@@ -30,13 +30,39 @@ class Player(pygame.sprite.Sprite):
         self.dash_cooldown = 1000
         self.last_dash_time = 0
         self.vulnerable = True
-        self.health = 100
-        self.max_health = 100
+        self.health = 10000 #100 par def
+        self.max_health = 10000 #100 par def
         self.invincibility_duration = 200
         self.knockback = pygame.math.Vector2(0, 0)
         self.inventory = {'gold' : 0, 'iron' : 0, 'xp' : 0}
         self.level = 1
         self.xp_to_next_level = 10
+
+    def attack(self):
+        self.attacking = True
+        self.attack_time = pygame.time.get_ticks()
+        # On remet l'animation à 0 pour être sûr de voir le coup partir du début
+        self.frame_index = 0
+
+        # Calcul de la direction vers la souris
+        mouse_pos = pygame.mouse.get_pos()
+        mouse_vect = pygame.math.Vector2(mouse_pos)
+        center_vect = pygame.math.Vector2((WIDTH // 2, HEIGHT // 2))
+        aim_vect = mouse_vect - center_vect
+
+        if aim_vect.magnitude() != 0:
+            aim_vect = aim_vect.normalize()
+
+        self.current_weapon = Weapon(self, self.groups(), aim_vect)
+
+    def single_input(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1 and not self.attacking and not self.is_dashing:
+                self.attack()
+
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_SPACE and self.can_dash and not self.is_dashing:
+                self.start_dash()
 
     def input(self):
         if not self.attacking:

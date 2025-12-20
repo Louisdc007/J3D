@@ -9,6 +9,8 @@ class UI():
 
         self.xp_bar = pygame.Rect((WIDTH//2)-(HEALTH_BAR_WIDTH//2), 10, HEALTH_BAR_WIDTH, BAR_HEIGHT)
 
+        self.clock_font = pygame.font.Font(UI_FONT, 30)
+
     def show_bar(self, current, max_amount, bg_rect, color):
 
         pygame.draw.rect(self.display_surface, UI_BG_COLOR, bg_rect)
@@ -22,6 +24,27 @@ class UI():
         pygame.draw.rect(self.display_surface, color, current_rect)
 
         pygame.draw.rect(self.display_surface, UI_BORDER_COLOR, bg_rect, 3)
+
+    def show_clock(self, game_time, day_duration):
+        ratio = game_time / day_duration
+        if ratio > 1: ratio = 1
+
+        start_hour = 20
+        total_hours = 10
+
+        current_hour_float = start_hour + (total_hours * ratio)
+        current_hour = int(current_hour_float % 24)
+        current_minute = int((current_hour_float * 60) % 60)
+
+        time_text = f"{current_hour:02d}:{current_minute:02d}"
+
+        text_surf = self.clock_font.render(time_text, True, TEXT_COLOR)
+        text_rect = text_surf.get_rect(topright=(WIDTH - 20, 10))
+
+        bg_rect = text_rect.inflate(20, 10)
+        pygame.draw.rect(self.display_surface, UI_BG_COLOR, bg_rect)
+        pygame.draw.rect(self.display_surface, UI_BORDER_COLOR, bg_rect, 3)
+        self.display_surface.blit(text_surf, text_rect)
 
     def show_inventory(self, inventory):
 
@@ -64,11 +87,15 @@ class UI():
             pygame.draw.rect(self.display_surface, UI_BORDER_COLOR, slot_rect, 3)
             step += 1
 
-    def display(self, player):
+    def display(self, player, game_time, day_duration):
         self.show_bar(player.health, player.max_health, self.life_bar, HEALTH_COLOR)
         self.show_bar(player.inventory['xp'], player.xp_to_next_level, self.xp_bar, (93, 179, 103))
 
         lvl_txt_surf = self.font.render(f"LVL. {player.level}", True, 'white')
+
         lvl_txt_rect = lvl_txt_surf.get_rect(midleft=(self.xp_bar.right + 10, self.xp_bar.centery))
-        self.display_surface.blit(lvl_txt_surf, lvl_txt_rect, lvl_txt_rect)
+        self.display_surface.blit(lvl_txt_surf, lvl_txt_rect)
+
         self.show_inventory(player.inventory)
+
+        self.show_clock(game_time, day_duration)
