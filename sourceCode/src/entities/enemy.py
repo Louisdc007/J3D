@@ -33,15 +33,23 @@ class Enemy(pygame.sprite.Sprite):
         self.duration = 0
 
         self.knockback = pygame.math.Vector2(0, 0)
+        self.base_color = info['color']
 
-    def get_damage(self, player_center):
+    def get_damage(self, player_center, amount):
         if self.vulnerable:
-            self.health -= 1
+            self.health -= amount
             self.vulnerable = False
             self.hit_time = pygame.time.get_ticks()
             self.image.fill('white')
 
-            self.knockback = ((pygame.math.Vector2(self.rect.center) - pygame.math.Vector2(player_center)).normalize() * 15)
+            my_pos = pygame.math.Vector2(self.rect.center)
+            other_pos = pygame.math.Vector2(player_center)
+            diff = my_pos - other_pos
+
+            if diff.magnitude() != 0:
+                self.knockback = diff.normalize() * 15
+            else:
+                self.knockback = pygame.math.Vector2(0, 0)
     
     def patrol(self):
         current_time = pygame.time.get_ticks()
@@ -69,20 +77,20 @@ class Enemy(pygame.sprite.Sprite):
         if direction == 'horizontal':
             for sprite in self.obstacle_sprites:
                 if sprite.rect.colliderect(self.rect):
-                    if speed > 0: # On bouge vers la droite (Input ou Recul)
+                    if speed > 0:
                         self.rect.right = sprite.rect.left
                         self.pos.x = self.rect.x
-                    if speed < 0: # On bouge vers la gauche
+                    if speed < 0:
                         self.rect.left = sprite.rect.right
                         self.pos.x = self.rect.x
 
         if direction == 'vertical':
             for sprite in self.obstacle_sprites:
                 if sprite.rect.colliderect(self.rect):
-                    if speed > 0: # On descend
+                    if speed > 0:
                         self.rect.bottom = sprite.rect.top
                         self.pos.y = self.rect.y
-                    if speed < 0: # On monte
+                    if speed < 0:
                         self.rect.top = sprite.rect.bottom
                         self.pos.y = self.rect.y
 
@@ -108,7 +116,7 @@ class Enemy(pygame.sprite.Sprite):
 
 
     def move(self, speed):
-        # 1. On calcule la direction voulue (Input)
+
         if self.direction.magnitude() != 0:
             self.direction = self.direction.normalize()
 
@@ -128,5 +136,5 @@ class Enemy(pygame.sprite.Sprite):
         self.reduce_knockback()
         if not self.vulnerable:
             if pygame.time.get_ticks() - self.hit_time >= 400:
-                self.image.fill('red')
+                self.image.fill(self.base_color)
                 self.vulnerable = True

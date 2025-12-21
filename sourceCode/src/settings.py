@@ -1,7 +1,8 @@
 import pyautogui
 
 WIDTH, HEIGHT = pyautogui.size()
-HEIGHT-=50
+HEIGHT-=100
+WIDTH-=100
 
 #WIDTH = 1280
 #HEIGHT = 720
@@ -89,7 +90,7 @@ MONSTER_DATA = {
         'damage': 50,
         'speed': 6,
         'notice_radius': 500,
-        'color': 'black',
+        'color': 'white',
         'loot': {
             'xp': (10, 15),
             'iron': (3, 5),
@@ -97,3 +98,5 @@ MONSTER_DATA = {
         }
     }
 }
+
+TEXT_COLOR = (255, 255, 255)
