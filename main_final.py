@@ -4,7 +4,7 @@ ONLINE_MODE = True
 
 if __name__ == "__main__":
     if ONLINE_MODE:
-        from systeme_multijoueur.client_main import run_multiplayer
+        from sourceCode.src.systeme_multijoueur.client_main import run_multiplayer
         run_multiplayer()
     else:
         # Import du code original de ton ami

@@ -2,22 +2,22 @@ import pygame
 import sys
 import os
 
-#gestion des chemin
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FRIEND_SRC = os.path.join(BASE_DIR, "sourceCode", "src")
-if FRIEND_SRC not in sys.path:
-    sys.path.append(FRIEND_SRC)
+# Gestion des chemins : on veut pointer sur "sourceCode/src"
+# Puisque ce fichier est dans "sourceCode/src/systeme_multijoueur"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+FRIEND_SRC = os.path.dirname(CURRENT_DIR) # C'est le dossier "src"
 
-#imports des classes de louis
+if FRIEND_SRC not in sys.path:
+    sys.path.insert(0, FRIEND_SRC) # On le met en priorité
+
+#imports
 try:
     from camera import CameraGroup
-    try:
-        from entities.player import Player as VisualPlayer
-    except ImportError:
-        from game import Player as VisualPlayer
+    from entities.player import Player as VisualPlayer
     print("DEBUG: Classes chargées avec succès !")
 except ImportError as e:
-    print(f"DEBUG: Erreur d'import. Détails : {e}")
+    print(f"ERREUR IMPORT : Impossible de trouver les fichiers dans {FRIEND_SRC}")
+    print(f"Détails : {e}")
 
 from .network import Network
 from .common.constants import *
