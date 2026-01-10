@@ -35,7 +35,7 @@ class Player(pygame.sprite.Sprite):
         self.health = self.max_health
         self.xp_to_next_level = 100
         self.attack_damage = 1
-        self.inventory = {'gold': 100, 'iron': 100, 'xp': 0}
+        self.inventory = {'gold': 0, 'iron': 0, 'xp': 0}
 
     def attack(self):
         self.attacking = True
