@@ -2,7 +2,7 @@ import pygame
 from settings import *
 import random
 
-from sourceCode.src.settings import MONSTER_DATA
+#from settings import MONSTER_DATA
 
 
 class Enemy(pygame.sprite.Sprite):
