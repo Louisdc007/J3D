@@ -25,7 +25,7 @@ class Game:
         self.hub = Hub()
 
         self.game_time = 0
-        self.day_duration = 5 * 60 * 10
+        self.day_duration = 5 * 60 * 100
 
         self.visible_sprites = CameraGroup()
         self.obstacle_sprites = pygame.sprite.Group()
