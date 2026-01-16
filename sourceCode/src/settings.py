@@ -49,7 +49,8 @@ MONSTER_DATA = {
         'notice_radius': 300,
         'color': 'red',
         'loot': {
-            'xp': (1, 2)
+            'xp': (1, 2),
+            'iron' : (5, 10)
         }
     },
     'tier2': {
@@ -60,7 +61,7 @@ MONSTER_DATA = {
         'color': (200, 100, 100),
         'loot': {
             'xp': (2, 3),
-            'iron': (0, 1)
+            'iron': (0, 2)
         }
     },
     'tier3': {

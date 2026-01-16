@@ -63,11 +63,24 @@ class Hub:
 
         self.menu_state = None
         self.selected_parcel_index = None
+        self.waiting_for_night = False
+        self.night_arrived = False
+        self.pending_dungeon_choice = None
 
         self.btn_random = pygame.Rect(0, 0, 300, 50)
         self.btn_random.center = (self.center_x, self.center_y - 50)
         self.btn_main_dungeons = pygame.Rect(0, 0, 300, 50)
         self.btn_main_dungeons.center = (self.center_x, self.center_y + 50)
+        
+        self.btn_wait_night = pygame.Rect(0, 0, 300, 50)
+        self.btn_wait_night.center = (self.center_x, self.center_y - 50)
+        self.btn_go_now = pygame.Rect(0, 0, 300, 50)
+        self.btn_go_now.center = (self.center_x, self.center_y + 50)
+        
+        self.btn_rest_night = pygame.Rect(0, 0, 300, 50)
+        self.btn_rest_night.center = (self.center_x, self.center_y - 50)
+        self.btn_explore_night = pygame.Rect(0, 0, 300, 50)
+        self.btn_explore_night.center = (self.center_x, self.center_y + 50)
 
         self.build_buttons = []
         self.reset_rect = pygame.Rect(10, 10, 100, 40)
@@ -76,7 +89,11 @@ class Hub:
         self.display_surface.fill((34, 139, 34))
         self.draw_village()
 
-        if self.menu_state == 'dungeon':
+        if self.night_arrived:
+            self.draw_night_arrived_menu()
+        elif self.waiting_for_night:
+            self.draw_wait_night_menu()
+        elif self.menu_state == 'dungeon':
             self.draw_dungeon_menu()
         elif self.menu_state == 'build':
             self.draw_build_menu()
@@ -120,6 +137,28 @@ class Hub:
         self.draw_text("Majeur (Artefact)", self.btn_main_dungeons.center)
         self.draw_text("(Clic ailleurs pour annuler)", (self.center_x, self.center_y + 150), size=16)
 
+    def draw_wait_night_menu(self):
+        self.draw_overlay("ATTENDRE LA NUIT")
+        message = "Les donjons ne peuvent être explorés que la nuit (entre 20h et 6h)."
+        self.draw_text(message, (self.center_x, self.center_y - 80), size=16)
+        
+        pygame.draw.rect(self.display_surface, (100, 200, 100), self.btn_wait_night, border_radius=5)
+        self.draw_text("Attendre la nuit", self.btn_wait_night.center)
+        
+        pygame.draw.rect(self.display_surface, (200, 100, 100), self.btn_go_now, border_radius=5)
+        self.draw_text("Annuler", self.btn_go_now.center)
+
+    def draw_night_arrived_menu(self):
+        self.draw_overlay("LA NUIT EST TOMBÉE")
+        message = "Que voulez-vous faire ?"
+        self.draw_text(message, (self.center_x, self.center_y - 80), size=16)
+        
+        pygame.draw.rect(self.display_surface, (100, 200, 100), self.btn_rest_night, border_radius=5)
+        self.draw_text("Se reposer (récupère la vie)", self.btn_rest_night.center, size=14)
+        
+        pygame.draw.rect(self.display_surface, (100, 100, 200), self.btn_explore_night, border_radius=5)
+        self.draw_text("Explorer un donjon", self.btn_explore_night.center, size=14)
+
     def draw_build_menu(self):
         self.draw_overlay("CONSTRUIRE")
 
@@ -157,10 +196,33 @@ class Hub:
     def check_click(self, pos, player):
         if self.reset_rect.collidepoint(pos):
             return "reset_game"
+        
+        if self.night_arrived:
+            if self.btn_rest_night.collidepoint(pos):
+                self.night_arrived = False
+                player.health = player.max_health
+                return "rest_at_night"
+            elif self.btn_explore_night.collidepoint(pos):
+                self.night_arrived = False
+                return "explore_at_night"
+            else:
+                return None
+        
+        if self.waiting_for_night:
+            if self.btn_wait_night.collidepoint(pos):
+                self.waiting_for_night = False
+                return f"wait_for_night_{self.pending_dungeon_choice}"
+            elif self.btn_go_now.collidepoint(pos):
+                self.waiting_for_night = False
+                self.pending_dungeon_choice = None
+                return None
+            else:
+                return None
+        
         if self.menu_state == 'dungeon':
             if self.btn_random.collidepoint(pos):
                 self.menu_state = None
-                return "dungeon_random"
+                return "dungeon_random_check"
             elif self.btn_main_dungeons.collidepoint(pos):
                 self.menu_state = None
                 return None
@@ -194,7 +256,7 @@ class Hub:
 
             if self.tent_rect.collidepoint(pos):
                 player.health = player.max_health
-                return "heal"
+                return "rest"
 
             for index, p in enumerate(self.parcels):
                 if p['rect'].collidepoint(pos):
