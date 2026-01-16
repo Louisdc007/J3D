@@ -25,13 +25,12 @@ class UI():
 
         pygame.draw.rect(self.display_surface, UI_BORDER_COLOR, bg_rect, 3)
 
-    def show_clock(self, game_time, day_duration):
+    def show_clock(self, game_time, day_duration, start_hour=20):
         ratio = game_time / day_duration
         if ratio > 1: ratio = 1
 
-        start_hour = 20
-        total_hours = 10
-
+        # start_hour = 6h du matin, total_hours = 24h
+        total_hours = 24
         current_hour_float = start_hour + (total_hours * ratio)
         current_hour = int(current_hour_float % 24)
         current_minute = int((current_hour_float * 60) % 60)
@@ -87,7 +86,7 @@ class UI():
             pygame.draw.rect(self.display_surface, UI_BORDER_COLOR, slot_rect, 3)
             step += 1
 
-    def display(self, player, game_time, day_duration):
+    def display(self, player, game_time, day_duration, start_hour=20):
         self.show_bar(player.health, player.max_health, self.life_bar, HEALTH_COLOR)
         self.show_bar(player.inventory['xp'], player.xp_to_next_level, self.xp_bar, (93, 179, 103))
 
@@ -97,5 +96,4 @@ class UI():
         self.display_surface.blit(lvl_txt_surf, lvl_txt_rect)
 
         self.show_inventory(player.inventory)
-
-        self.show_clock(game_time, day_duration)
+        self.show_clock(game_time, day_duration, start_hour)
