@@ -3,7 +3,8 @@ import os
 
 class SaveManager:
     def __init__(self, filename="save.json"):
-        self.filename = filename
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.filename = os.path.join(script_dir, filename)
 
     def load_game(self):
         if not os.path.exists(self.filename):
