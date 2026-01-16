@@ -1,0 +1,38 @@
+{
+    "player": {
+        "level": 1,
+        "current_health": 100,
+        "max_health": 100,
+        "xp": 0,
+        "xp_to_next": 100,
+        "gold": 0,
+        "iron": 0,
+        "attack_damage": 1
+    },
+    "hub": [
+        {
+            "id": 0,
+            "building_type": null
+        },
+        {
+            "id": 1,
+            "building_type": null
+        },
+        {
+            "id": 2,
+            "building_type": null
+        },
+        {
+            "id": 3,
+            "building_type": null
+        },
+        {
+            "id": 4,
+            "building_type": null
+        },
+        {
+            "id": 5,
+            "building_type": null
+        }
+    ]
+}
