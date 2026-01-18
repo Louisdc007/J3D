@@ -29,7 +29,6 @@ class UI():
         ratio = game_time / day_duration
         if ratio > 1: ratio = 1
 
-        # start_hour = 6h du matin, total_hours = 24h
         total_hours = 24
         current_hour_float = start_hour + (total_hours * ratio)
         current_hour = int(current_hour_float % 24)
@@ -86,14 +85,15 @@ class UI():
             pygame.draw.rect(self.display_surface, UI_BORDER_COLOR, slot_rect, 3)
             step += 1
 
-    def display(self, player, game_time, day_duration, start_hour=20):
+    def display(self, player, game_time, day_duration, start_hour=20, show_inventory=True):
         self.show_bar(player.health, player.max_health, self.life_bar, HEALTH_COLOR)
         self.show_bar(player.inventory['xp'], player.xp_to_next_level, self.xp_bar, (93, 179, 103))
 
         lvl_txt_surf = self.font.render(f"LVL. {player.level}", True, 'white')
-
         lvl_txt_rect = lvl_txt_surf.get_rect(midleft=(self.xp_bar.right + 10, self.xp_bar.centery))
         self.display_surface.blit(lvl_txt_surf, lvl_txt_rect)
 
-        self.show_inventory(player.inventory)
+        if show_inventory:
+            self.show_inventory(player.inventory)
+            
         self.show_clock(game_time, day_duration, start_hour)

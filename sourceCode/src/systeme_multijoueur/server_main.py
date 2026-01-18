@@ -5,12 +5,9 @@ import pickle
 import random
 from _thread import *
 
-#forcage des chemins
-# On recupere le chemin du dossier J3D
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__)) # dossier systeme_multijoueur
-BASE_DIR = os.path.dirname(CURRENT_DIR) # dossier J3D
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(CURRENT_DIR)
 
-# On ajoute J3D et le dossier src du systeme dep solo au système
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
     
@@ -18,7 +15,6 @@ FRIEND_SRC = os.path.join(BASE_DIR, "sourceCode", "src")
 if FRIEND_SRC not in sys.path:
     sys.path.insert(0, FRIEND_SRC)
 
-# On verifie si on peut importer les entite
 try:
     from systeme_multijoueur.common.entities import SharedPlayer, SharedObstacle
     from systeme_multijoueur.common.constants import *
@@ -30,8 +26,7 @@ except ImportError as e:
 from systeme_multijoueur.common.entities import SharedPlayer, SharedObstacle
 from common.constants import *
 
-# configuration serveur
-server = "0.0.0.0" # ecoute toutes les connexions entrantes
+server = "0.0.0.0"
 port = 55555
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -47,7 +42,6 @@ s.listen()
 print(f"--- Serveur lancé sur le port {port} ---")
 print("En attente de joueurs...")
 
-# Création de la map ,obstacles
 obstacles = []
 for _ in range(NUM_OBSTACLES):
     obstacles.append(SharedObstacle(
@@ -61,21 +55,17 @@ for _ in range(NUM_OBSTACLES):
 players = {}
 
 def threaded_client(conn, player_id):
-    # envoi initial : (ID du joueur, liste des obstacles)
     conn.send(pickle.dumps((player_id, obstacles)))
     
     while True:
         try:
-            # recoit les entres clavier (z,q,s,d,space)
             data = pickle.loads(conn.recv(2048))
             if not data:
                 print(f"Joueur {player_id} déconnecté.")
                 break
             
-            # application de la logique (mouvement, collision, roulade)
             players[player_id].update_logic(data, obstacles)
             
-            # renvoie l'etat de tous les joueurs au client
             conn.sendall(pickle.dumps(players))
         except Exception as e:
             print(f"Erreur avec le joueur {player_id} : {e}")

@@ -1,7 +1,6 @@
 import sys
 import os
 
-#on s'assure que le dossier racine J3D est dans le path
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -37,7 +36,6 @@ class SharedPlayer:
         return pygame.Rect(self.x, self.y, self.width, self.height)
 
     def update_logic(self, inputs, obstacles):
-        """La logique de déplacement de ton ami, version Serveur"""
         if self.invincible_timer > 0: self.invincible_timer -= 1
         if self.stun_timer > 0: self.stun_timer -= 1
         
@@ -66,18 +64,15 @@ class SharedPlayer:
         else:
             self.state = "stunned"
 
-        #application du recul et mouvement
         total_dx = dx + self.recoil_vector.x
         total_dy = dy + self.recoil_vector.y
         self.recoil_vector *= RECOIL_DRAG
 
-        #collision simplifie pour le serveur , rectange
         self.x += total_dx
         self.check_collision(obstacles, total_dx, 0)
         self.y += total_dy
         self.check_collision(obstacles, 0, total_dy)
         
-        #limites du monde
         self.x = max(0, min(self.x, WORLD_WIDTH - self.width))
         self.y = max(0, min(self.y, WORLD_HEIGHT - self.height))
 
