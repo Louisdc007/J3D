@@ -52,7 +52,7 @@ class DungeonGenerator:
 
     def generate(self):
 
-        for _ in range(8): # 8 Salles
+        for _ in range(8):
             w = random.randint(6, 10)
             h = random.randint(6, 10)
             

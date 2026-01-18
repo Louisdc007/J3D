@@ -7,7 +7,7 @@ import sys
 class Player(pygame.sprite.Sprite):
     def __init__(self, pos, groups, obstacles):
         super().__init__(groups)
-        self.image = pygame.Surface((TILE_SIZE, TILE_SIZE))
+        self.image = pygame.surface.Surface((TILE_SIZE, TILE_SIZE))
         self.image.fill('white')
         self.rect = self.image.get_rect(topleft=pos)
         self.pos = pygame.math.Vector2(self.rect.topleft)
@@ -33,8 +33,10 @@ class Player(pygame.sprite.Sprite):
         self.level = 1
         self.max_health = 100
         self.health = self.max_health
-        self.xp_to_next_level = 100
-        self.attack_damage = 1
+        
+        self.xp_to_next_level = 50 
+        
+        self.attack_damage = 10
         self.inventory = {'gold': 0, 'iron': 0, 'xp': 0}
 
     def attack(self):
@@ -76,10 +78,6 @@ class Player(pygame.sprite.Sprite):
                 self.direction.x = 1
             else:
                 self.direction.x = 0
-
-            if keys[pygame.K_ESCAPE]:
-                pygame.quit()
-                sys.exit()
 
             if keys[pygame.K_SPACE]:
                 if not self.attacking and not self.is_dashing and self.can_dash:
@@ -190,11 +188,13 @@ class Player(pygame.sprite.Sprite):
         if self.inventory['xp'] >= self.xp_to_next_level:
             self.level += 1
             self.inventory['xp'] -= self.xp_to_next_level
-            self.xp_to_next_level = int(self.xp_to_next_level * 1.5)
+            
+            self.xp_to_next_level = int(self.xp_to_next_level * 1.3)
+            
             self.max_health += 20
             self.health = self.max_health
-            self.attack_damage += 3
-            print(f"LEVEL UP! {self.level}")
+            self.attack_damage += 2
+            print(f"LEVEL UP! {self.level} - Next level needs {self.xp_to_next_level} XP")
 
         if self.attacking:
             self.direction.x = 0
