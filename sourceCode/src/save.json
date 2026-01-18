@@ -1,38 +1,13 @@
 {
     "player": {
         "level": 1,
-        "current_health": 10,
+        "current_health": 100,
         "max_health": 100,
-        "xp": 66,
-        "xp_to_next": 100,
-        "gold": 95,
-        "iron": 50,
-        "attack_damage": 1
+        "xp": 25,
+        "xp_to_next": 50,
+        "gold": 0,
+        "iron": 13,
+        "attack_damage": 10
     },
-    "hub": [
-        {
-            "id": 0,
-            "building_type": "forge"
-        },
-        {
-            "id": 1,
-            "building_type": null
-        },
-        {
-            "id": 2,
-            "building_type": null
-        },
-        {
-            "id": 3,
-            "building_type": null
-        },
-        {
-            "id": 4,
-            "building_type": null
-        },
-        {
-            "id": 5,
-            "building_type": null
-        }
-    ]
+    "hub": []
 }

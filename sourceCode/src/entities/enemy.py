@@ -2,8 +2,6 @@ import pygame
 from settings import *
 import random
 
-#from settings import MONSTER_DATA
-
 
 class Enemy(pygame.sprite.Sprite):
     def __init__(self, groups, pos, obstacles, tier):

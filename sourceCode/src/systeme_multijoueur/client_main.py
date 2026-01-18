@@ -2,15 +2,12 @@ import pygame
 import sys
 import os
 
-# Gestion des chemins : on veut pointer sur "sourceCode/src"
-# Puisque ce fichier est dans "sourceCode/src/systeme_multijoueur"
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-FRIEND_SRC = os.path.dirname(CURRENT_DIR) # C'est le dossier "src"
+FRIEND_SRC = os.path.dirname(CURRENT_DIR)
 
 if FRIEND_SRC not in sys.path:
-    sys.path.insert(0, FRIEND_SRC) # On le met en priorité
+    sys.path.insert(0, FRIEND_SRC)
 
-#imports
 try:
     from camera import CameraGroup
     from entities.player import Player as VisualPlayer
@@ -33,13 +30,11 @@ def run_multiplayer():
         pygame.quit()
         return
 
-    # On recupere l'ID et les obstacles genere par le serveur
     player_id, obstacles_data = n.p
 
     camera_group = CameraGroup()
     dummy_obstacles = pygame.sprite.Group()
 
-    #initialisation du joueur local
     try:
         initial_pos = (WORLD_WIDTH//2, WORLD_HEIGHT//2)
         drawer_me = VisualPlayer(initial_pos, camera_group, dummy_obstacles)
@@ -58,7 +53,6 @@ def run_multiplayer():
     while running:
         clock.tick(FPS)
 
-        #Entrees clavier
         keys = pygame.key.get_pressed()
         inputs = {
             'z': keys[pygame.K_z], 's': keys[pygame.K_s],
@@ -66,34 +60,27 @@ def run_multiplayer():
             'space': keys[pygame.K_SPACE]
         }
 
-        #Reseau - envoi des touches et reception des positions de tout le monde
         all_players_data = n.send(inputs)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
 
-        #mise à jour de notre position
         if all_players_data and player_id in all_players_data:
             server_me = all_players_data[player_id]
             drawer_me.rect.x = server_me.x
             drawer_me.rect.y = server_me.y
             
-            #mise à jour du vecteur pos si syssolo l'utilise
             if hasattr(drawer_me, 'pos'):
                 drawer_me.pos.x, drawer_me.pos.y = server_me.x, server_me.y
 
-        #rendu
         screen.fill(GRAY)
 
-        #calcul du decalage de la caméra pour les éléments fixes , obstacles et autres joueurs.
         offset = pygame.math.Vector2()
         offset.x = drawer_me.rect.centerx - SCREEN_WIDTH // 2
         offset.y = drawer_me.rect.centery - SCREEN_HEIGHT // 2
 
-        #dessin des obstacles
         for obs in obstacles_data:
-            # On accède à obs.rect.x car l'objet SharedObstacle contient un Rect
             rect_visuel = pygame.Rect(
                 obs.rect.x - offset.x, 
                 obs.rect.y - offset.y, 
@@ -102,14 +89,12 @@ def run_multiplayer():
             )
             pygame.draw.rect(screen, BLACK, rect_visuel)
 
-        #dessin des autres joueurs
         if all_players_data:
             for other_id, p_data in all_players_data.items():
-                if other_id != player_id: #la caméra le fait(dessin)
+                if other_id != player_id:
                     other_rect = pygame.Rect(p_data.x - offset.x, p_data.y - offset.y, 40, 40)
                     pygame.draw.rect(screen, BLUE, other_rect)
 
-        #dessin de notre joueur via le CameraGroup
         camera_group.custom_draw(drawer_me)
 
         pygame.display.flip()
