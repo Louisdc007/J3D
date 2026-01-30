@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Greed - Dark Fantasy RPG</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0b0b0f;
+            --bg-stone: #1e1e24;
+            --accent-blood: #8a1c1c;
+            --accent-gold: #cfa852;
+            --midnight-blue: #191970;
+            --moon-blue: #aaddff;
+            --text-main: #dcdcdc;
+            --ui-blue-dark: #0a0f1e;
+            --ui-blue-light: #1c2540;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'VT323', monospace;
+            font-size: 1.3rem;
+            line-height: 1.5;
+            image-rendering: pixelated;
+            background-image: 
+                linear-gradient(335deg, rgba(0,0,0,0.4) 23px, transparent 23px),
+                linear-gradient(155deg, rgba(0,0,0,0.4) 23px, transparent 23px),
+                linear-gradient(335deg, rgba(0,0,0,0.4) 23px, transparent 23px),
+                linear-gradient(155deg, rgba(0,0,0,0.4) 23px, transparent 23px);
+            background-size: 58px 58px;
+        }
+
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            box-shadow: inset 0 0 150px rgba(0,0,0,0.9);
+            pointer-events: none;
+            z-index: 900;
+        }
+
+        h1, h2, h3, h4 {
+            font-family: 'Press Start 2P', cursive;
+            text-transform: uppercase;
+        }
+
+        header {
+            background: linear-gradient(180deg, #050505 0%, #0d0d14 100%);
+            border-bottom: 1px solid #333;
+            padding: 1.2rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 0 20px rgba(0, 10, 40, 0.8);
+        }
+
+        .logo {
+            font-size: 2.2rem;
+            font-family: 'Press Start 2P', cursive;
+            background: linear-gradient(to bottom, #e0f7fa 0%, #4facfe 40%, #00008b 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 8px rgba(79, 172, 254, 0.6));
+            position: relative;
+            letter-spacing: -2px;
+        }
+        
+        .logo::after {
+            content: 'PROMO 2030';
+            position: absolute;
+            bottom: -14px;
+            left: 2px;
+            font-size: 0.5rem;
+            color: #6a8caf;
+            -webkit-text-fill-color: #6a8caf;
+            font-family: 'Press Start 2P';
+            letter-spacing: 4px;
+            filter: none;
+            text-shadow: none;
+        }
+
+        nav ul {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+            align-items: center;
+        }
+
+        nav a {
+            color: #5a6a8c;
+            text-decoration: none;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.6rem;
+            transition: all 0.3s;
+            border-bottom: 2px solid transparent;
+            padding-bottom: 5px;
+        }
+
+        nav a:hover {
+            color: var(--moon-blue);
+            text-shadow: 0 0 8px rgba(170, 221, 255, 0.6);
+            border-bottom-color: var(--moon-blue);
+        }
+
+        .hero {
+            min-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            position: relative;
+            background: radial-gradient(circle at center, #1b2030 0%, #000000 90%);
+            border-bottom: 2px solid #333;
+            overflow: hidden;
+        }
+
+        .hero h1 {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(to bottom, #fff 0%, #4facfe 50%, #191970 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 0 15px rgba(25, 25, 112, 0.8));
+        }
+
+        .subtitle {
+            font-family: 'Press Start 2P';
+            font-size: 0.7rem;
+            color: #6a8caf;
+            margin-bottom: 3rem;
+            letter-spacing: 2px;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .rpg-dialog {
+            background: linear-gradient(to bottom, #16213e, #0f1526);
+            border: 3px solid #30475e;
+            box-shadow: 
+                inset 0 0 0 2px #000,
+                0 0 0 2px #000,
+                0 10px 20px rgba(0,0,0,0.8);
+            padding: 2rem;
+            width: 90%;
+            max-width: 700px;
+            min-height: 140px;
+            text-align: left;
+            position: relative;
+            border-radius: 4px;
+            margin-bottom: 2rem;
+        }
+
+        .rpg-dialog::before {
+            content: "ARCHIVISTE";
+            position: absolute;
+            top: -14px;
+            left: 20px;
+            background: #191970;
+            color: #fff;
+            padding: 4px 10px;
+            font-family: 'Press Start 2P';
+            font-size: 0.6rem;
+            border: 2px solid #30475e;
+            box-shadow: 0 0 5px #000;
+        }
+
+        .btn {
+            display: inline-block;
+            background-color: #191970;
+            color: #fff;
+            font-family: 'Press Start 2P', cursive;
+            padding: 1.2rem 2.5rem;
+            text-decoration: none;
+            border: 2px solid #4facfe;
+            font-size: 0.8rem;
+            box-shadow: 0 0 10px rgba(25, 25, 112, 0.5);
+            transition: all 0.2s;
+            text-shadow: 1px 1px 0 #000;
+        }
+
+        .btn:hover {
+            background-color: #202080;
+            box-shadow: 0 0 20px rgba(79, 172, 254, 0.6);
+            border-color: #fff;
+        }
+
+        section {
+            padding: 6rem 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 10;
+        }
+
+        .section-header {
+            color: #aaddff;
+            border-bottom: 3px solid #191970;
+            display: inline-block;
+            margin-bottom: 3rem;
+            padding-bottom: 0.8rem;
+            text-shadow: 0 0 10px rgba(25, 25, 112, 0.8);
+        }
+
+        .lore-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 3rem;
+            align-items: center;
+            background: rgba(10, 15, 30, 0.8);
+            padding: 2.5rem;
+            border: 1px solid #30475e;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+        }
+
+        .mockup-window {
+            background: #000;
+            border: 4px solid #30475e;
+            height: 300px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .iso-grid {
+            width: 200%;
+            height: 200%;
+            position: absolute;
+            top: -50%; left: -50%;
+            background-image: 
+                linear-gradient(30deg, #111 12%, transparent 12.5%, transparent 87%, #111 87.5%, #111),
+                linear-gradient(150deg, #111 12%, transparent 12.5%, transparent 87%, #111 87.5%, #111),
+                linear-gradient(30deg, #111 12%, transparent 12.5%, transparent 87%, #111 87.5%, #111),
+                linear-gradient(150deg, #111 12%, transparent 12.5%, transparent 87%, #111 87.5%, #111),
+                linear-gradient(60deg, #1a1a2e 25%, transparent 25.5%, transparent 75%, #1a1a2e 75%, #1a1a2e),
+                linear-gradient(60deg, #1a1a2e 25%, transparent 25.5%, transparent 75%, #1a1a2e 75%, #1a1a2e);
+            background-size: 40px 70px;
+            opacity: 0.4;
+            transform: rotateX(60deg) rotateZ(45deg);
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+        }
+
+        .card {
+            background: #13151a;
+            border: 1px solid #333;
+            padding: 1.5rem;
+            transition: transform 0.3s, border-color 0.3s, box-shadow 0.3s;
+            position: relative;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            border-color: #4facfe;
+            box-shadow: 0 0 15px rgba(25, 25, 112, 0.4);
+        }
+
+        .card h3 {
+            color: #aaddff;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .card-icon {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            display: block;
+            color: #4facfe;
+            text-shadow: 0 0 10px rgba(79, 172, 254, 0.4);
+        }
+
+        .epita-badge {
+            text-align: center;
+            margin-top: 4rem;
+            padding: 3rem 2rem;
+            background: linear-gradient(to top, #05050a, transparent);
+            border-top: 1px solid #333;
+        }
+
+        .team-grid {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 3rem;
+            margin-top: 3rem;
+        }
+
+        .member {
+            text-align: center;
+        }
+
+        .member-sprite {
+            width: 72px;
+            height: 72px;
+            background: #1a1a2e;
+            margin: 0 auto 15px;
+            image-rendering: pixelated;
+            border: 2px solid #4facfe;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+
+        footer {
+            background: #000;
+            padding: 2rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #444;
+            border-top: 1px solid #191970;
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 10px;
+            height: 1.3rem;
+            background: #4facfe;
+            animation: blink 1s infinite;
+            vertical-align: middle;
+            box-shadow: 0 0 5px #4facfe;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .lore-container { grid-template-columns: 1fr; }
+            nav { display: none; }
+            header { padding: 1rem; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">Greed</div>
+    <div style="display: none; color: white; font-size: 1.5rem;" class="mobile-nav">☰</div>
+    <nav>
+        <ul>
+            <li><a href="#lore">HISTOIRE</a></li>
+            <li><a href="#gameplay">MÉCANIQUES</a></li>
+            <li><a href="#dev">ÉQUIPE</a></li>
+        </ul>
+    </nav>
+</header>
+
+<section class="hero">
+    <h1>Greed</h1>
+    <div class="subtitle">PROJET ANNUEL S1-S2 • EPITA 2030</div>
+    <div class="rpg-dialog">
+        <span id="typewriter"></span><span class="cursor"></span>
+    </div>
+    <a href="#lore" class="btn">COMMENCER L'AVENTURE</a>
+</section>
+
+<section id="lore">
+    <div style="text-align: center;">
+        <h2 class="section-header">Le Monde d'Après</h2>
+    </div>
+    <div class="lore-container">
+        <div class="mockup-window">
+            <div class="iso-grid"></div>
+            <div style="position: absolute; top: 40%; left: 40%; width: 30px; height: 40px; background: #4facfe; box-shadow: 2px 2px 0 #000; border: 1px solid #fff;"></div>
+            <div style="position: absolute; top: 35%; left: 55%; width: 24px; height: 24px; background: #300; border: 1px solid #f00; box-shadow: 2px 2px 0 #000;"></div>
+            <div style="position: absolute; bottom: 10px; left: 10px; color: #aaa; font-size: 0.7rem; font-family: 'VT323';">Preversion v0.4.2</div>
+        </div>
+        <div>
+            <p style="color: #aaa; margin-bottom: 1rem;">Le seigneur n'est pas revenu de sa quête dans son état normal ... Désormais il détruit tout dans l'objectif de s'enrichir.</p>
+            <p style="color: #dcdcdc;">Dans <strong style="color: #4facfe;">Greed</strong>, bâtissez une lumière dans les ténèbres. Explorez des donjons en ruines, affrontez ce qui rôde dans l'ombre et reconstruisez une société sur les cendres de l'ancienne.</p>
+            <br>
+            <ul style="list-style: none; padding-left: 1rem; border-left: 3px solid #191970;">
+                <li style="margin-bottom: 0.8rem;">🌑 Cycle Jour/Nuit dynamique</li>
+                <li style="margin-bottom: 0.8rem;">🏰 Gestion de colonie survie</li>
+                <li>⚔️ Exploration isométrique</li>
+            </ul>
+        </div>
+    </div>
+</section>
+
+<section id="gameplay">
+    <div style="text-align: center;">
+        <h2 class="section-header">Système de Jeu</h2>
+    </div>
+    <div class="features-grid">
+        <div class="card">
+            <span class="card-icon">🗝️</span>
+            <h3>Exploration</h3>
+            <p style="font-size: 0.9rem; color: #aaa;">Des donjons générés procéduralement. Chaque descente est une nouvelle épreuve où la carte est votre meilleure alliée.</p>
+        </div>
+        <div class="card">
+            <span class="card-icon">💎</span>
+            <h3>Ressources</h3>
+            <p style="font-size: 0.9rem; color: #aaa;">Collectez du fer et de l'or pour reconstruire le village et éspérer sauver le seigneur.</p>
+        </div>
+        <div class="card">
+            <span class="card-icon">🏗️</span>
+            <h3>Construction</h3>
+            <p style="font-size: 0.9rem; color: #aaa;">Reconstruisez un village pour vous améliorer vous et vos armes. Votre base est votre hub central, protégez-la à tout prix.</p>
+        </div>
+        <div class="card">
+            <span class="card-icon">🔮</span>
+            <h3>Évolution</h3>
+            <p style="font-size: 0.9rem; color: #aaa;">Faites évoluer le niveau de votre personnage pour découvrir un béstiaire riche et complet.</p>
+        </div>
+    </div>
+</section>
+
+<section id="dev" class="epita-badge">
+    <h3>PROMO 2030 - EPITA</h3>
+    <p style="margin-top: 1rem; font-size: 0.9rem; color: #666;">
+        Projet de première année.<br>
+        Développé en python grace a pygame.
+    </p>
+    <div style="margin-top: 3rem; text-align: center;">
+            <a href="roles.html" class="btn btn-secondary">EN SAVOIR PLUS</a>
+    </div>
+    <div class="team-grid">
+        <div class="member">
+            <div class="member-sprite">🧠</div>
+            <span style="font-size: 0.8rem; color: #aaddff;">Lead Developper</span>
+        </div>
+        <div class="member">
+            <div class="member-sprite">💻</div>
+            <span style="font-size: 0.8rem; color: #aaddff;">Network Developper</span>
+        </div>
+        <div class="member">
+            <div class="member-sprite">🎨</div>
+            <span style="font-size: 0.8rem; color: #aaddff;">Art & UI</span>
+        </div>
+        <div class="member">
+            <div class="member-sprite">👾</div>
+            <span style="font-size: 0.8rem; color: #aaddff;">Narration et histoire</span>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div style="margin-bottom: 2rem;">
+        <a href="bibliographie.html" class="btn">BIBLIOGRAPHIE</a>
+    </div>
+    <p>&copy; 2025-2030 Greed PROJECT. Tous droits réservés.</p>
+    <p style="margin-top: 0.5rem; font-size: 0.7rem; opacity: 0.5;">Site web vitrine v1.2</p>
+</footer>
+
+<script>
+    const text = "Les étoiles ne brillent plus... c'est à nous d'allumer les feux. Préparez votre équipement, l'expédition part ce soir.";
+    const speed = 40;
+    let i = 0;
+    const target = document.getElementById("typewriter");
+
+    function typeWriter() {
+        if (i < text.length) {
+            target.textContent += text.charAt(i);
+            i++;
+            setTimeout(typeWriter, speed);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(typeWriter, 800);
+    });
+
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+        anchor.addEventListener('click', function (e) {
+            e.preventDefault();
+            document.querySelector(this.getAttribute('href')).scrollIntoView({
+                behavior: 'smooth'
+            });
+        });
+    });
+    
+    const mobileNav = document.querySelector('.mobile-nav');
+    if(mobileNav) {
+        mobileNav.addEventListener('click', () => {
+            alert("Menu mobile à implémenter en JS si besoin !");
+        });
+    }
+</script>
+
+</body>
+</html>
