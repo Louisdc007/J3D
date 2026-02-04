@@ -1,6 +1,6 @@
 # Greed
 
-[site web](https://anatis-studio.github.io/greed-game/)
+<a href="https://anatis-studio.github.io/greed-game/" target="_blank">Site web</a>
 
 **Greed** est un jeu de rôle (RPG), de simulation et de bac-à-sable développé en Python avec Pygame. Il s'agit d'un projet de fin d'année pour notre première année à **Epita**.
 
