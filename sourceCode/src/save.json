@@ -1,13 +1,24 @@
 {
     "player": {
-        "level": 1,
-        "current_health": 100,
-        "max_health": 100,
+        "level": 2,
+        "current_health": 120,
+        "max_health": 120,
         "xp": 0,
-        "xp_to_next": 50,
+        "xp_to_next": 65,
         "gold": 0,
-        "iron": 0,
-        "attack_damage": 10
+        "iron": 15,
+        "attack_damage": 12
     },
-    "hub": []
+    "hub": [
+        {
+            "type": "path",
+            "x": 864,
+            "y": 320
+        },
+        {
+            "type": "path",
+            "x": 864,
+            "y": 256
+        }
+    ]
 }
