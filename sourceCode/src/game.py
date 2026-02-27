@@ -1,6 +1,7 @@
 import pygame
 import sys
 import random
+import os
 from settings import *
 from entities.player import *
 from camera import CameraGroup
@@ -13,6 +14,13 @@ from hub import Hub
 from save_manager import SaveManager
 from intro import IntroScene
 
+base_path = os.path.dirname(os.path.abspath(__file__))
+multi_path = os.path.join(base_path, "systeme_multijoueur")
+if multi_path not in sys.path:
+    sys.path.append(multi_path)
+
+from network import Network
+
 class Game:
     def __init__(self):
         pygame.init()
@@ -24,6 +32,17 @@ class Game:
         self.game_state = 'menu'
         self.paused = False
         self.intro_next_state = 'hub'
+        
+        # --- VARIABLES MULTIJOUEUR ---
+        self.is_multiplayer = False
+        self.network = None
+        self.player_id = None
+        self.host_id = 0 # Le Maître des monstres
+        self.other_players = {}
+        self.server_obstacles_cache = []  
+        self.server_spawn_pos = (0, 0)    
+        self.server_enemies_cache = {} 
+        self.killed_enemies_queue = [] 
         
         self.menu_font = pygame.font.Font(UI_FONT, 40)
         self.title_font = pygame.font.Font(UI_FONT, 100)
@@ -73,10 +92,8 @@ class Game:
             self.player.load_save_data(loaded_data['player'])
             self.hub.load_save_data(loaded_data['hub'])
             self.has_save_file = True
-            print("Sauvegarde trouvée : Intro sera passée.")
         else:
             self.has_save_file = False
-            print("Aucune sauvegarde : Intro sera jouée.")
 
         self.create_map()
         self.ui = UI()
@@ -88,10 +105,26 @@ class Game:
         self.transition_text = ""
         self.transition_font = pygame.font.Font(None, 60)
         self.transition_type = None
-        
         self.dungeon_entrance_pos = None
         self.dungeon_entrance_rect = None
         self.resources_at_dungeon_start = None
+
+    def start_multiplayer(self):
+        self.network = Network()
+        if self.network and self.network.p:
+            self.player_id, server_obstacles, spawn_pos, server_enemies = self.network.p
+            self.is_multiplayer = True
+            self.server_obstacles_cache = server_obstacles
+            self.server_spawn_pos = spawn_pos
+            self.server_enemies_cache = server_enemies 
+            self.other_players = {}
+            self.killed_enemies_queue = []
+            
+            self.game_state = 'dungeon'
+            self.create_map() 
+            print(f"Connecté au serveur Multijoueur ! ID: {self.player_id}")
+        else:
+            print("Serveur introuvable. Lancez server_main.py")
 
     def get_current_hour(self):
         ratio = self.game_time / self.full_day_duration
@@ -127,24 +160,20 @@ class Game:
                 pygame.quit()
                 sys.exit()
 
-
             if self.game_state == 'menu':
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     for btn in self.menu_buttons:
                         if btn['rect'].collidepoint(event.pos):
                             if btn['action'] == 'start_game':
-                                if self.has_save_file:
-                                    self.game_state = 'hub'
-                                else:
-                                    self.intro.reset()
-                                    self.game_state = 'intro'
-                                    self.intro_next_state = 'hub'
+                                self.is_multiplayer = False 
+                                if self.has_save_file: self.game_state = 'hub'
+                                else: self.intro.reset(); self.game_state = 'intro'; self.intro_next_state = 'hub'
                                 return 
-                            elif btn['action'] == 'multi_placeholder': print("Bientôt !")
+                            elif btn['action'] == 'multi_placeholder': 
+                                self.start_multiplayer()
                             elif btn['action'] == 'go_to_options': self.game_state = 'options'; return
                             elif btn['action'] == 'quit_game': self.save_all(); pygame.quit(); sys.exit()
             
-       
             elif self.game_state == 'options':
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     for btn in self.options_buttons:
@@ -155,7 +184,6 @@ class Game:
                                 self.player = Player((0, 0), [self.visible_sprites], self.obstacle_sprites)
                                 self.hub = Hub(self.obstacle_sprites); self.hub.spawn_npcs(self.player)
                                 self.game_time = 0; self.has_save_file = False
-                                print("Reset effectué.")
                             elif btn['action'] == 'toggle_fullscreen': self.toggle_fullscreen(btn)
                             elif btn['action'] == 'replay_intro':
                                 self.intro.reset(); self.game_state = 'intro'; self.intro_next_state = 'options'; return 
@@ -168,53 +196,31 @@ class Game:
                         if self.intro_next_state == 'hub': self.save_all()
 
             elif self.game_state in ['hub', 'dungeon', 'loading']:
-                if self.game_state == 'loading':
-                    return
-
+                if self.game_state == 'loading': return
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         if self.game_state == 'hub' and self.hub.build_mode_active:
-                            self.hub.build_mode_active = False
-                            self.hub.selected_blueprint = None
-                        else:
-                            self.paused = not self.paused
+                            self.hub.build_mode_active = False; self.hub.selected_blueprint = None
+                        else: self.paused = not self.paused
                 
                 if self.paused:
-                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                        self.check_pause_click(event.pos)
+                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1: self.check_pause_click(event.pos)
                     continue 
 
                 if self.game_state == 'hub':
                     if event.type == pygame.MOUSEBUTTONDOWN:
                         action = self.hub.check_click(event.pos, self.player)
-                        
-                        if action == "build_action":
-                            self.save_all()
+                        if action == "build_action": self.save_all()
                         elif action == "dungeon_random_check":
-                            if self.is_dungeon_time():
-                                self.game_state = 'loading'
-                            else:
-                                self.hub.waiting_for_night = True
-                                self.hub.pending_dungeon_choice = 'random'
+                            if self.is_dungeon_time(): self.game_state = 'loading'
+                            else: self.hub.waiting_for_night = True; self.hub.pending_dungeon_choice = 'random'
                         elif action == "wait_for_night_random":
-                            self.game_time = self.evening_duration
-                            self.transition_active = True
-                            self.transition_alpha = 0
-                            self.transition_type = 'wait_for_dungeon'
-                            self.transition_text = "La nuit tombe..."
-                        elif action == "rest":
-                            self.game_time = self.evening_duration
-                            self.transition_active = True
-                            self.transition_alpha = 0
-                            self.transition_type = 'night'
-                            self.transition_text = "La nuit tombe..."
-                        elif action == "rest_at_night":
-                            self.transition_active = True
-                            self.transition_alpha = 0
-                            self.transition_type = 'night'
-                            self.transition_text = "La nuit tombe..."
-                        elif action == "explore_at_night":
-                            self.game_state = 'loading'
+                            self.game_time = self.evening_duration; self.transition_active = True; self.transition_alpha = 0
+                            self.transition_type = 'wait_for_dungeon'; self.transition_text = "La nuit tombe..."
+                        elif action == "rest" or action == "rest_at_night":
+                            self.game_time = self.evening_duration; self.transition_active = True; self.transition_alpha = 0
+                            self.transition_type = 'night'; self.transition_text = "La nuit tombe..."
+                        elif action == "explore_at_night": self.game_state = 'loading'
 
                 elif self.game_state == 'dungeon':
                     self.player.single_input(event)
@@ -235,10 +241,8 @@ class Game:
             rect = pygame.Rect(0, 0, btn_width, btn_height)
             rect.center = (center_x, start_y + i * gap)
             if rect.collidepoint(pos):
-                if btn['action'] == 'resume':
-                    self.paused = False
-                elif btn['action'] == 'save_quit':
-                    self.save_all(); self.paused = False; self.game_state = 'menu'
+                if btn['action'] == 'resume': self.paused = False
+                elif btn['action'] == 'save_quit': self.save_all(); self.paused = False; self.game_state = 'menu'
                 elif btn['action'] == 'dungeon_to_hub':
                     self.revert_dungeon_resources(); self.visible_sprites.empty(); self.obstacle_sprites.empty(); self.attackable_sprites.empty(); self.item_sprites.empty()
                     self.game_state = 'hub'; self.game_time = 0; self.paused = False; self.hub.spawn_npcs(self.player); self.save_all()
@@ -312,8 +316,7 @@ class Game:
             rect.center = (center_x, start_y + i * gap)
             if rect.collidepoint(mouse_pos):
                 color = (min(btn['color'][0] + 50, 255), min(btn['color'][1] + 50, 255), min(btn['color'][2] + 50, 255)); border = 3
-            else:
-                color = btn['color']; border = 0
+            else: color = btn['color']; border = 0
             pygame.draw.rect(self.screen, color, rect, border_radius=8)
             pygame.draw.rect(self.screen, (200, 200, 200), rect, 2, border_radius=8)
             text_surf = pygame.font.Font(UI_FONT, 20).render(btn['text'], True, (255, 255, 255))
@@ -362,6 +365,29 @@ class Game:
 
     def create_map(self):
         self.visible_sprites.empty(); self.obstacle_sprites.empty(); self.attackable_sprites.empty(); self.item_sprites.empty()
+        
+        if self.is_multiplayer:
+            for obs in self.server_obstacles_cache:
+                Tile((obs.rect.x, obs.rect.y), [self.visible_sprites, self.obstacle_sprites])
+            
+            spawn_x, spawn_y = self.server_spawn_pos
+            entrance_tile = DungeonEntrance((spawn_x, spawn_y), [self.visible_sprites])
+            self.dungeon_entrance_pos = pygame.math.Vector2(spawn_x, spawn_y)
+            self.dungeon_entrance_rect = entrance_tile.rect
+            
+            self.resources_at_dungeon_start = {'gold': self.player.inventory['gold'], 'iron': self.player.inventory['iron'], 'health': self.player.health}
+            self.player.rect.topleft = (spawn_x, spawn_y)
+            self.player.pos = pygame.math.Vector2(self.player.rect.topleft)
+            self.player.obstacle_sprites = self.obstacle_sprites
+            self.player.add(self.visible_sprites)
+            
+            for eid, data in self.server_enemies_cache.items():
+                ex, ey, tier = data
+                enemy = Enemy([self.visible_sprites, self.attackable_sprites], (ex, ey), self.obstacle_sprites, tier)
+                enemy.multiplayer_id = eid 
+                
+            return 
+
         dungeon = DungeonGenerator(); map_data, player_spawn = dungeon.generate()
         for row_index, row in enumerate(map_data):
             for col_index, cell in enumerate(row):
@@ -372,6 +398,7 @@ class Game:
         self.dungeon_entrance_pos = pygame.math.Vector2(spawn_x, spawn_y); self.dungeon_entrance_rect = entrance_tile.rect
         self.resources_at_dungeon_start = {'gold': self.player.inventory['gold'], 'iron': self.player.inventory['iron'], 'health': self.player.health}
         self.player.rect.topleft = (spawn_x, spawn_y); self.player.pos = pygame.math.Vector2(self.player.rect.topleft); self.player.obstacle_sprites = self.obstacle_sprites; self.player.add(self.visible_sprites)
+        
         available_monsters = ['tier1', 'tier2']; monster_weights = [70, 30]
         if 5 <= self.player.level < 10: available_monsters = ['tier3', 'tier4']; monster_weights = [60, 40]
         elif self.player.level >= 10: available_monsters = ['tier5']; monster_weights = [100]
@@ -392,8 +419,7 @@ class Game:
             finished = self.intro.update()
             if finished:
                 self.game_state = self.intro_next_state
-                if self.intro_next_state == 'hub':
-                    self.save_all()
+                if self.intro_next_state == 'hub': self.save_all()
             return
 
         if self.game_state == 'menu' or self.game_state == 'options': return
@@ -411,39 +437,118 @@ class Game:
             if self.transition_alpha == self.transition_duration // 2:
                 if self.transition_type == 'morning':
                     if self.is_player_at_entrance():
-                        self.game_state = 'hub'; self.game_time = 0; self.transition_text = "Il est l'heure de rentrer..."; self.hub.spawn_npcs(self.player); self.save_all(); print("Journée terminée, retour au hub à 6h. Sauvegarde effectuée.")
+                        self.game_state = 'hub'; self.game_time = 0; self.transition_text = "Il est l'heure de rentrer..."; self.hub.spawn_npcs(self.player); self.save_all()
                     else:
                         self.game_state = 'hub'; self.game_time = 0; self.transition_text = "Une équipe de secours est venue vous chercher."
                         if self.resources_at_dungeon_start: self.player.inventory['gold'] = self.resources_at_dungeon_start['gold']; self.player.inventory['iron'] = self.resources_at_dungeon_start['iron']; self.player.health = 10
-                        self.save_all(); print("Une équipe de secours est venue vous chercher. Ressources perdues, santé à 10.")
+                        self.save_all()
                     self.visible_sprites.empty(); self.obstacle_sprites.empty(); self.attackable_sprites.empty(); self.item_sprites.empty()
                 elif self.transition_type == 'night':
-                    self.game_time = 0; self.save_all(); print("La nuit est tombée. Nouveau jour commence à 6h.")
-                
+                    self.game_time = 0; self.save_all()
                 elif self.transition_type == 'wait_for_dungeon':
-                    print("Transition vers le chargement..."); 
                     self.game_state = 'loading'
 
             if self.transition_alpha >= self.transition_duration: self.transition_active = False; self.transition_alpha = 0; self.transition_type = None
         
         if self.game_state == 'hub' and not self.transition_active: pass
         elif self.game_state == 'dungeon' and not self.transition_active:
-            self.visible_sprites.update()
+            
+            # --- SYNCHRONISATION MULTIJOUEUR MAÎTRE/CLIENT ---
+            if self.is_multiplayer:
+                keys = pygame.key.get_pressed()
+                inputs = {'z': keys[pygame.K_z], 's': keys[pygame.K_s], 'q': keys[pygame.K_q], 'd': keys[pygame.K_d], 'space': keys[pygame.K_SPACE]}
+                
+                # Le Maître collecte les positions des ennemis pour les envoyer au serveur
+                my_enemy_pos = {}
+                if self.player_id == self.host_id:
+                    for enemy in self.attackable_sprites:
+                        if hasattr(enemy, 'multiplayer_id'):
+                            my_enemy_pos[enemy.multiplayer_id] = (enemy.rect.x, enemy.rect.y)
+                
+                payload = {
+                    'keys': inputs, 
+                    'killed_enemies': self.killed_enemies_queue,
+                    'enemy_positions': my_enemy_pos
+                }
+                server_data = self.network.send(payload)
+                self.killed_enemies_queue.clear() 
+                
+                self.visible_sprites.update()
+                
+                if server_data:
+                    players_data, dead_enemies_list, server_enemies_data = server_data
+                    
+                    # Le plus petit ID connecté est le Maître
+                    active_pids = list(players_data.keys())
+                    if active_pids:
+                        self.host_id = min(active_pids)
+                        
+                    # 1. Mise à jour de mon propre personnage
+                    me = players_data.get(self.player_id)
+                    if me:
+                        self.player.rect.topleft = (me.x, me.y)
+                        self.player.pos.x, self.player.pos.y = me.x, me.y
+                    
+                    # 2. Mise à jour des amis (et suppression des fantômes)
+                    for pid, pdata in players_data.items():
+                        if pid != self.player_id:
+                            if pid not in self.other_players:
+                                self.other_players[pid] = Player((pdata.x, pdata.y), [self.visible_sprites], self.obstacle_sprites)
+                            else:
+                                clone = self.other_players[pid]
+                                clone.rect.topleft = (pdata.x, pdata.y)
+                                clone.pos.x, clone.pos.y = pdata.x, pdata.y
+                                
+                    for pid in list(self.other_players.keys()):
+                        if pid not in active_pids:
+                            self.other_players[pid].kill() # Retire le fantôme !
+                            del self.other_players[pid]
+                            
+                    # 3. Mise à jour Parfaite des Monstres
+                    for enemy in list(self.attackable_sprites):
+                        if hasattr(enemy, 'multiplayer_id'):
+                            eid = enemy.multiplayer_id
+                            # S'il a été tué par n'importe qui, on l'efface
+                            if eid in dead_enemies_list or eid not in server_enemies_data:
+                                enemy.kill()
+                            # Si on n'est PAS le Maître, on colle le monstre à la position du serveur
+                            elif self.player_id != self.host_id:
+                                srv_x, srv_y, _ = server_enemies_data[eid]
+                                enemy.rect.x = srv_x
+                                enemy.rect.y = srv_y
+                                enemy.pos.x = srv_x
+                                enemy.pos.y = srv_y
+
+            else:
+                self.visible_sprites.update()
+            # -----------------------------------
+
             for enemy in self.attackable_sprites:
-                enemy.enemy_update(self.player)
-                if pygame.sprite.collide_rect(enemy, self.player): self.player.get_damage(enemy.damage, enemy.rect.center)
+                # Seul le Maître (ou le joueur solo) a le droit de faire réfléchir l'IA !
+                if not self.is_multiplayer or self.player_id == self.host_id:
+                    enemy.enemy_update(self.player)
+                
+                # Les dégâts par collision marchent pour tout le monde
+                if pygame.sprite.collide_rect(enemy, self.player): 
+                    self.player.get_damage(enemy.damage, enemy.rect.center)
+                
                 if enemy.health <= 0:
+                    if self.is_multiplayer and hasattr(enemy, 'multiplayer_id'):
+                        self.killed_enemies_queue.append(enemy.multiplayer_id)
+                        
                     for item_type, (min_amt, max_amt) in enemy.loot_table.items():
                         amount = random.randint(min_amt, max_amt)
                         for _ in range(amount):
                             offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); pos = (enemy.rect.x + offset_x, enemy.rect.y + offset_y)
                             Item(pos, [self.visible_sprites, self.item_sprites], item_type)
                     enemy.kill()
+                    
             for item in pygame.sprite.spritecollide(self.player, self.item_sprites, True):
                 if item.type in self.player.inventory: self.player.inventory[item.type] += 1
             if self.player.current_weapon:
                 hitted_enemies = pygame.sprite.spritecollide(self.player.current_weapon, self.attackable_sprites, False)
                 for e in hitted_enemies: e.get_damage(self.player.rect.center, self.player.attack_damage)
+                
             if self.player.health <= 0: print("GAME OVER"); pygame.quit(); sys.exit()
 
     def run(self):
