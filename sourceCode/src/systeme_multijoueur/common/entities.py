@@ -1,13 +1,8 @@
-import sys
-import os
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-
 import pygame
 import math
-from systeme_multijoueur.common.constants import *
+
+# Importation relative propre : on prend constants.py qui est dans le même dossier !
+from .constants import *
 
 class SharedObstacle:
     def __init__(self, x, y, width, height, color, type="wall"):
@@ -73,6 +68,7 @@ class SharedPlayer:
         self.y += total_dy
         self.check_collision(obstacles, 0, total_dy)
         
+        # On utilise WORLD_WIDTH et WORLD_HEIGHT importés proprement
         self.x = max(0, min(self.x, WORLD_WIDTH - self.width))
         self.y = max(0, min(self.y, WORLD_HEIGHT - self.height))
 
