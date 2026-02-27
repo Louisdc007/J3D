@@ -1,5 +1,7 @@
 # Greed
 
+<a href="https://anatis-studio.github.io/greed-game/" target="_blank">Site web</a>
+
 **Greed** est un jeu de rôle (RPG), de simulation et de bac-à-sable développé en Python avec Pygame. Il s'agit d'un projet de fin d'année pour notre première année à **Epita**.
 
 Le jeu se déroule dans un monde de *dark fantasy* médiéval, en 2D isométrique (style "Pokémon Gameboy"), après qu'une catastrophe ait ravagé le monde.
@@ -7,8 +9,6 @@ Le jeu se déroule dans un monde de *dark fantasy* médiéval, en 2D isométriqu
 ## 📖 Concept
 
 Vous incarnez un survivant qui doit explorer ce nouveau monde. Pour survivre, vous devrez :
-
-* Explorer un **open world** rempli de mystères.
 
 * Braver des **donjons** pour récupérer de précieuses ressources.
 
@@ -19,8 +19,6 @@ Vous incarnez un survivant qui doit explorer ce nouveau monde. Pour survivre, vo
 * **Fabriquer et améliorer** vos armes et compétences pour faire face aux dangers.
 
 ## 🚀 Fonctionnalités Clés
-
-* **Exploration libre** : Découvrez un monde ouvert en 2D isométrique.
 
 * **Système de Donjons** : Aventurez-vous dans des zones instanciées pour des défis et du butin.
 
@@ -34,15 +32,9 @@ Vous incarnez un survivant qui doit explorer ce nouveau monde. Pour survivre, vo
 
 ## 📸 Galerie
 
-*capture*
+<img width="756" height="485" alt="Screenshot 2026-02-04 at 10-50-11 Rapport de Soutenance 1 - Cahier technique pdf" src="https://github.com/user-attachments/assets/0fa809e4-0452-4f98-8cc8-727e36a11aea" />
 
-| Village en jeu | Exploration d'un donjon | 
- | ----- | ----- | 
-|  |  | 
-
-| Interface d'artisanat | Combat | 
- | ----- | ----- | 
-|  |  | 
+<img width="757" height="491" alt="Screenshot 2026-02-04 at 10-51-39 Rapport de Soutenance 1 - Cahier technique pdf" src="https://github.com/user-attachments/assets/a954b7ae-f53b-4d0d-8d64-769c376c04a3" />
 
 ## 🛠️ Installation et Lancement
 
@@ -65,14 +57,12 @@ Pour jouer à Greed, suivez ces étapes :
    ```
 
 3. **Installez les dépendances :**
-   *(Assurez-vous d'avoir un fichier `requirements.txt` dans votre dépôt)*
 
    ```
    pip install -r requirements.txt
    
    ```
 
-   *Si vous n'avez pas de `requirements.txt`, listez les dépendances ici (ex: `pip install pygame`)*
 
 4. **Lancez le jeu :**
 
@@ -81,10 +71,11 @@ Pour jouer à Greed, suivez ces étapes :
    
    ```
 
-   *(Remplacez `main.py` par le nom de votre fichier principal si différent)*
-
 ## 👨‍💻 L'Équipe
 
-* **\[Votre Nom\]** - \[Rôle\]
+* **\[Louis Da Costa\]** - \[Lead Technique\]
+* **\[Ghita Abelaoui\]** - \[Network Programmer\]
+* **\[Adam Sellam\]** - \[Art & UI/UX\]
+* **\[Amine Aaddi\]** - \[Narration et histoire\]
 
 *Projet réalisé dans le cadre de la première année de prépa à Epita (2024-2025).*
