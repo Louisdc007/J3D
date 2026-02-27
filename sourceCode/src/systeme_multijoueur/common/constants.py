@@ -9,18 +9,23 @@ if FRIEND_SRC not in sys.path:
     sys.path.append(FRIEND_SRC)
 
 try:
-    from settings import WIDTH, HEIGHT, FPS
+    # On importe aussi TILE_SIZE de Louis
+    from settings import WIDTH, HEIGHT, FPS, TILE_SIZE
     SCREEN_WIDTH = WIDTH
     SCREEN_HEIGHT = HEIGHT
     print(f"DEBUG Constants: Tailles récupérées ({WIDTH}x{HEIGHT})")
 except ImportError:
-    SCREEN_WIDTH = 800
-    SCREEN_HEIGHT = 600
+    SCREEN_WIDTH = 1280
+    SCREEN_HEIGHT = 720
     FPS = 60
-    print("DEBUG Constants: Import échoué, utilisation des valeurs par défaut (800x600)")
+    TILE_SIZE = 64
+    print("DEBUG Constants: Import échoué, utilisation des valeurs par défaut")
 
-WORLD_WIDTH = SCREEN_WIDTH * 3
-WORLD_HEIGHT = SCREEN_HEIGHT * 3
+# --- CORRECTION DE LA LIMITE DU MONDE ---
+# Le donjon de Louis fait 100x100 tuiles. On donne cette taille exacte au serveur.
+WORLD_WIDTH = 6400  # = 6400 pixels
+WORLD_HEIGHT = 6400 # = 6400 pixels
+# ----------------------------------------
 
 GRAY = (128, 128, 128)
 ORANGE = (255, 165, 0)
