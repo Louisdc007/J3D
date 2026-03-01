@@ -61,8 +61,10 @@ class Hub:
 
         # --- POPULATION ---
         self.max_population = 0 
-        self.current_workers = 0 
         self.max_cap_limit = 15 
+
+        self.banked_iron = 0
+        self.banked_gold = 0
 
         # --- ETATS ---
         self.waiting_for_night = False
@@ -162,16 +164,54 @@ class Hub:
             })
         elif b_type == 'shop':
             self.menu_buttons.append({
-                'text': f"Vendre 10 Fer (+{PRICES['sell_iron']*10} Or)",
-                'action': 'sell_iron_10',
+                'text': f"Vendre 20 Fer (+{PRICES['sell_iron']} Or)",
+                'action': 'sell_iron_20',
                 'rect': pygame.Rect(0, 0, 350, 40),
                 'pos': (cx, start_y)
+            })
+            self.menu_buttons.append({
+                'text': f"Acheter 20 Fer (-{PRICES['buy_iron']} Or)",
+                'action': 'buy_iron_20',
+                'rect': pygame.Rect(0, 0, 350, 40),
+                'pos': (cx, start_y + gap)
             })
             self.menu_buttons.append({
                 'text': f"Acheter Potion ({PRICES['buy_potion']} Or)",
                 'action': 'buy_potion',
                 'rect': pygame.Rect(0, 0, 350, 40),
-                'pos': (cx, start_y + gap)
+                'pos': (cx, start_y + gap * 2)
+            })
+        elif b_type == 'bank':
+            self.menu_buttons.append({
+                'text': f"Sécuriser 50 Fer",
+                'action': 'deposit_iron',
+                'rect': pygame.Rect(0, 0, 165, 40),
+                'pos': (cx - 90, start_y)
+            })
+            self.menu_buttons.append({
+                'text': f"Retirer 50 Fer",
+                'action': 'withdraw_iron',
+                'rect': pygame.Rect(0, 0, 165, 40),
+                'pos': (cx + 90, start_y)
+            })
+            self.menu_buttons.append({
+                'text': f"Sécuriser 50 Or",
+                'action': 'deposit_gold',
+                'rect': pygame.Rect(0, 0, 165, 40),
+                'pos': (cx - 90, start_y + gap)
+            })
+            self.menu_buttons.append({
+                'text': f"Retirer 50 Or",
+                'action': 'withdraw_gold',
+                'rect': pygame.Rect(0, 0, 165, 40),
+                'pos': (cx + 90, start_y + gap)
+            })
+        elif b_type == 'library':
+            self.menu_buttons.append({
+                'text': f"Étudier: +25 XP ({PRICES['buy_xp']} Or)",
+                'action': 'buy_xp',
+                'rect': pygame.Rect(0, 0, 350, 40),
+                'pos': (cx, start_y)
             })
         elif b_type == 'altar':
             self.menu_buttons.append({
@@ -241,6 +281,7 @@ class Hub:
         
         # Titre
         title_txt = BUILDING_DATA[self.active_menu]['name'].upper()
+        if self.active_menu == 'bank': title_txt += f" (Fer: {self.banked_iron} | Or: {self.banked_gold}) - Taxe: 2%/j"
         self.draw_text(title_txt, (self.menu_rect.centerx, self.menu_rect.top + 30), font=self.title_font, color=(255, 215, 0))
         
         # Boutons
@@ -279,20 +320,73 @@ class Hub:
                             return "save" # On demande une save
                         else: print("Pas assez de ressources !")
                         
-                    elif action == 'sell_iron_10':
-                        if player.inventory['iron'] >= 10:
-                            player.inventory['iron'] -= 10
-                            player.inventory['gold'] += PRICES['sell_iron'] * 10
-                            print("Fer vendu !")
+                    elif action == 'deposit_iron':
+                        if player.inventory['iron'] >= 50:
+                            player.inventory['iron'] -= 50
+                            self.banked_iron += 50
+                            print("50 Fer déposés !")
+                            self.open_building_menu('bank') # Refresh menu text
                             return "save"
                         else: print("Pas assez de fer !")
                         
+                    elif action == 'withdraw_iron':
+                        if self.banked_iron >= 50:
+                            self.banked_iron -= 50
+                            player.inventory['iron'] += 50
+                            print("50 Fer retirés !")
+                            self.open_building_menu('bank') # Refresh menu text
+                            return "save"
+                        else: print("Pas assez de fer en banque !")
+                        
+                    elif action == 'deposit_gold':
+                        if player.inventory['gold'] >= 50:
+                            player.inventory['gold'] -= 50
+                            self.banked_gold += 50
+                            print("50 Or déposés !")
+                            self.open_building_menu('bank') # Refresh menu text
+                            return "save"
+                        else: print("Pas assez d'or !")
+                        
+                    elif action == 'withdraw_gold':
+                        if self.banked_gold >= 50:
+                            self.banked_gold -= 50
+                            player.inventory['gold'] += 50
+                            print("50 Or retirés !")
+                            self.open_building_menu('bank') # Refresh menu text
+                            return "save"
+                        else: print("Pas assez d'or en banque !")
+                        
+                    elif action == 'sell_iron_20':
+                        if player.inventory['iron'] >= 20:
+                            player.inventory['iron'] -= 20
+                            player.inventory['gold'] += PRICES['sell_iron']
+                            print(f"20 Fer vendu pour {PRICES['sell_iron']} Or !")
+                            return "save"
+                        else: print("Pas assez de fer !")
+                        
+                    elif action == 'buy_iron_20':
+                        if player.inventory['gold'] >= PRICES['buy_iron']:
+                            player.inventory['gold'] -= PRICES['buy_iron']
+                            player.inventory['iron'] += 20
+                            print(f"20 Fer acheté pour {PRICES['buy_iron']} Or !")
+                            return "save"
+                        else: print("Pas assez d'or !")
+                        
                     elif action == 'buy_potion':
-                        if player.inventory['gold'] >= PRICES['buy_potion']:
-                            player.inventory['gold'] -= PRICES['buy_potion']
-                            # TODO: Ajouter potion à l'inventaire (ou soin direct si pas d'inventaire item)
-                            player.health = min(player.health + 50, player.max_health) # Soin direct pour l'instant
-                            print("Potion achetée et bue !")
+                        if player.health < player.max_health:
+                            if player.inventory['gold'] >= PRICES['buy_potion']:
+                                player.inventory['gold'] -= PRICES['buy_potion']
+                                player.health = min(player.health + 50, player.max_health)
+                                print("Potion achetée et bue !")
+                                return "save"
+                            else: print("Pas assez d'or !")
+                        else: print("Points de vie au maximum.")
+                        
+                    elif action == 'buy_xp':
+                        if player.inventory['gold'] >= PRICES['buy_xp']:
+                            player.inventory['gold'] -= PRICES['buy_xp']
+                            player.inventory['xp'] += 25
+                            print("Connaissance acquise !")
                             return "save"
                         else: print("Pas assez d'or !")
                         
@@ -322,9 +416,13 @@ class Hub:
         # 2. Menus contextuels (Nuit, Donjon...)
         if self.night_arrived:
             if self.btn_rest_night.collidepoint(pos):
-                self.night_arrived = False; player.health = player.max_health; return "rest_at_night"
+                self.night_arrived = False
+                player.health = player.max_health
+                self.apply_daily_tax()
+                return "rest_at_night"
             elif self.btn_explore_night.collidepoint(pos):
-                self.night_arrived = False; return "explore_at_night"
+                self.night_arrived = False
+                return "explore_at_night"
             return None
         
         if self.waiting_for_night:
@@ -379,17 +477,35 @@ class Hub:
                     print(f"Clic sur {b_sprite.name}")
                     # On vérifie si ce batiment a un menu
                     # b_sprite.type contient la clé (ex: 'forge')
-                    if b_sprite.type in ['forge', 'shop', 'altar', 'statue']:
+                    if b_sprite.type in ['forge', 'shop', 'altar', 'statue', 'bank', 'library']:
                         self.open_building_menu(b_sprite.type)
                         return None
 
             # Autres intéractions
             if self.gate_rect.collidepoint(pos): self.menu_state = 'dungeon'; return None
-            if self.tent_rect.collidepoint(pos): player.health = player.max_health; return "rest"
+            if self.tent_rect.collidepoint(pos): 
+                player.health = player.max_health
+                self.apply_daily_tax()
+                return "rest"
             if self.btn_open_build.collidepoint(pos): self.build_mode_active = True; self.selected_blueprint = None; return None
         return None
 
-    # ... (le reste des méthodes draw_environment, draw_build_mode_ui, etc. est inchangé) ...
+    def apply_daily_tax(self):
+        """Applique une taxe de 2% sur les ressources stockées en banque chaque nuit"""
+        tax_rate = 0.02
+        if self.banked_iron > 0:
+            taxed_iron = int(self.banked_iron * tax_rate)
+            # Minimum 1 de taxe si on a de l'argent pour éviter que les petits montants soient ignorés
+            if taxed_iron == 0 and self.banked_iron >= 50: taxed_iron = 1
+            self.banked_iron = max(0, self.banked_iron - taxed_iron)
+            
+        if self.banked_gold > 0:
+            taxed_gold = int(self.banked_gold * tax_rate)
+            if taxed_gold == 0 and self.banked_gold >= 50: taxed_gold = 1
+            self.banked_gold = max(0, self.banked_gold - taxed_gold)
+            
+        print(f"[Banque] Les taxes journalières ont été perçues (2%).")
+
     def draw_environment(self):
         path_color = (160, 130, 90)
         pygame.draw.circle(self.display_surface, path_color, (self.center_x, self.center_y), 100)
@@ -520,12 +636,30 @@ class Hub:
         pygame.draw.rect(self.display_surface, (100, 100, 200), self.btn_explore_night, border_radius=5)
         self.draw_text("Explorer", self.btn_explore_night.center, size=14)
 
-    def get_save_data(self): return self.built_buildings
+    def get_save_data(self): 
+        return {
+            'buildings': self.built_buildings,
+            'banked_iron': self.banked_iron,
+            'banked_gold': self.banked_gold
+        }
+        
     def load_save_data(self, data):
         self.built_buildings = []; self.building_sprites.empty(); self.path_sprites.empty(); self.hub_obstacles.empty()
         for rect in self.fixed_obstacles: Block(rect, [self.hub_obstacles])
-        if not isinstance(data, list): print("Format invalide."); return
-        for b in data:
+        
+        b_list = []
+        if isinstance(data, list):
+            b_list = data
+            self.banked_iron = 0
+            self.banked_gold = 0
+        elif isinstance(data, dict):
+            b_list = data.get('buildings', [])
+            self.banked_iron = data.get('banked_iron', 0)
+            self.banked_gold = data.get('banked_gold', 0)
+        else:
+            print("Format invalide."); return
+            
+        for b in b_list:
             if isinstance(b, dict) and 'type' in b and 'x' in b and 'y' in b:
                 if b['type'] in BUILDING_DATA:
                     info = BUILDING_DATA[b['type']]

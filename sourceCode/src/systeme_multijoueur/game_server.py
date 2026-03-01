@@ -72,10 +72,15 @@ class GameServer:
                 if col == 'x':
                     self.obstacles.append(SharedObstacle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE, "black"))
 
-        available_monsters = ['tier1', 'tier2', 'tier3']
+        available_monsters = ['tier1']
+        if self.current_level >= 2: available_monsters.append('tier2')
+        if self.current_level >= 4: available_monsters.append('tier3')
+        if self.current_level >= 6: available_monsters.append('tier4')
+        if self.current_level >= 8: available_monsters.append('tier5')
+        
         eid = 0
         for room in dg.rooms[1:]:
-            for _ in range(random.randint(2, 4 + self.current_level)):
+            for _ in range(random.randint(3, 5 + self.current_level * 2)):
                 offset_x = random.randint(-20, 20)
                 offset_y = random.randint(-20, 20)
                 ex = room.centerx * TILE_SIZE + offset_x

@@ -1,0 +1,68 @@
+{
+    "player": {
+        "level": 2,
+        "current_health": 52,
+        "max_health": 60,
+        "xp": 50,
+        "xp_to_next": 130,
+        "gold": 0,
+        "iron": 3,
+        "attack_damage": 26
+    },
+    "hub": {
+        "buildings": [
+            {
+                "type": "inn",
+                "x": 64,
+                "y": 160
+            },
+            {
+                "type": "inn",
+                "x": 192,
+                "y": 160
+            },
+            {
+                "type": "forge",
+                "x": 32,
+                "y": 320
+            },
+            {
+                "type": "shop",
+                "x": 288,
+                "y": 352
+            },
+            {
+                "type": "inn",
+                "x": 320,
+                "y": 160
+            },
+            {
+                "type": "inn",
+                "x": 448,
+                "y": 160
+            },
+            {
+                "type": "shop",
+                "x": 896,
+                "y": 192
+            },
+            {
+                "type": "bank",
+                "x": 896,
+                "y": 416
+            },
+            {
+                "type": "inn",
+                "x": 64,
+                "y": 224
+            },
+            {
+                "type": "bank",
+                "x": 736,
+                "y": 96
+            }
+        ],
+        "banked_iron": 334,
+        "banked_gold": 383
+    }
+}

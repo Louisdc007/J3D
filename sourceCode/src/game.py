@@ -37,7 +37,7 @@ class Game:
         self.intro_next_state = 'hub'
         
         self.game_time = 0
-        self.day_duration = 5 * 60 * 100
+        self.day_duration = 5 * 60 * 500
         self.hours_in_day = 24
         self.morning_hour = 6
         self.evening_hour = 20
@@ -301,13 +301,17 @@ class Game:
                         elif action == "dungeon_random_check":
                             ratio = self.game_time / self.full_day_duration
                             h = int((self.morning_hour + (self.hours_in_day * ratio)) % 24)
-                            if h >= self.evening_hour or h < self.morning_hour: self.game_state = 'loading'
+                            if h >= self.evening_hour or h < self.morning_hour: 
+                                self.resources_at_dungeon_start = self.player.inventory['iron']
+                                self.game_state = 'loading'
                             else: self.hub.waiting_for_night = True; self.hub.pending_dungeon_choice = 'random'
                         elif action in ["wait_for_night_random", "rest", "rest_at_night"]:
                             self.game_time = self.evening_duration; self.transition_active = True; self.transition_alpha = 0
                             self.transition_type = 'wait_for_dungeon' if action == "wait_for_night_random" else 'night'
                             self.transition_text = "La nuit tombe..."
-                        elif action == "explore_at_night": self.game_state = 'loading'
+                        elif action == "explore_at_night": 
+                            self.resources_at_dungeon_start = self.player.inventory['iron']
+                            self.game_state = 'loading'
                     
                     elif self.game_state == 'dungeon':
                         self.player.single_input(event)
@@ -417,10 +421,19 @@ class Game:
                 self.game_state = 'hub'
                 self.game_time = 0
                 self.hub.night_arrived = False
+                
+                if self.is_player_at_entrance():
+                    self.transition_text = "Retour réussi"
+                else:
+                    self.transition_text = "Sauvé de justesse, mais vous avez tout perdu..."
+                    self.player.health = 1
+                    self.player.inventory['gold'] = 0
+                    self.player.inventory['iron'] = 0
+                        
                 self.save_all()
-                self.transition_text = "Retour réussi" if self.is_player_at_entrance() else "Sauvé par l'équipe de secours"
             elif self.transition_type in ['night', 'wait_for_dungeon']:
                 if self.transition_type == 'wait_for_dungeon':
+                    self.resources_at_dungeon_start = self.player.inventory['iron']
                     self.game_time = self.evening_duration
                     self.game_state = 'loading'
                 else:
@@ -453,8 +466,9 @@ class Game:
 
             if len([e for e in self.attackable_sprites if hasattr(e, 'health')]) == 0 and not self.transition_active:
                 self.transition_active = True; self.transition_alpha = 0; self.transition_type = 'morning'; self.game_time = self.full_day_duration
-            
             if self.player.health <= 0: 
+                self.player.inventory['gold'] = 0
+                self.player.inventory['iron'] = 0
                 self.return_to_menu()
 
     def update_multi(self):
@@ -611,7 +625,16 @@ class Game:
         self.dungeon_entrance_pos = pygame.math.Vector2(spawn_pos); self.dungeon_entrance_rect = entrance.rect
         self.player.rect.topleft = spawn_pos; self.player.pos = pygame.math.Vector2(spawn_pos); self.player.obstacle_sprites = self.obstacle_sprites; self.player.add(self.visible_sprites)
         for room in dungeon.rooms[1:]:
-            for _ in range(random.randint(2, 4)): Enemy([self.visible_sprites, self.attackable_sprites], (room.centerx * TILE_SIZE, room.centery * TILE_SIZE), self.obstacle_sprites, 'tier1')
+            available_tiers = ['tier1']
+            if self.player.level >= 3: available_tiers.append('tier2')
+            if self.player.level >= 6: available_tiers.append('tier3')
+            
+            spawn_count = random.randint(3, 5 + self.player.level)
+            for _ in range(spawn_count): 
+                chosen_tier = random.choice(available_tiers)
+                offset_x = random.randint(-40, 40)
+                offset_y = random.randint(-40, 40)
+                Enemy([self.visible_sprites, self.attackable_sprites], (room.centerx * TILE_SIZE + offset_x, room.centery * TILE_SIZE + offset_y), self.obstacle_sprites, chosen_tier)
 
     def build_map_multi(self, server_data):
         self.visible_sprites.empty(); self.obstacle_sprites.empty(); self.attackable_sprites.empty(); self.item_sprites.empty()

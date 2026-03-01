@@ -23,7 +23,7 @@ class Player(pygame.sprite.Sprite):
         self.dash_duration = 200
         self.dash_start_time = 0
         self.can_dash = True
-        self.dash_cooldown = 1000
+        self.dash_cooldown = 1500
         self.last_dash_time = 0
         self.vulnerable = True
         self.hurt_time = 0
@@ -31,12 +31,12 @@ class Player(pygame.sprite.Sprite):
         self.knockback = pygame.math.Vector2(0, 0)
 
         self.level = 1
-        self.max_health = 100
+        self.max_health = 50
         self.health = self.max_health
         
-        self.xp_to_next_level = 50 
+        self.xp_to_next_level = 100 
         
-        self.attack_damage = 10
+        self.attack_damage = 5
         self.inventory = {'gold': 0, 'iron': 0, 'xp': 0}
 
     def attack(self):
@@ -189,11 +189,11 @@ class Player(pygame.sprite.Sprite):
             self.level += 1
             self.inventory['xp'] -= self.xp_to_next_level
             
-            self.xp_to_next_level = int(self.xp_to_next_level * 1.3)
+            self.xp_to_next_level = int(self.xp_to_next_level * 1.5)
             
-            self.max_health += 20
+            self.max_health += 5
             self.health = self.max_health
-            self.attack_damage += 2
+            self.attack_damage += 1
             print(f"LEVEL UP! {self.level} - Next level needs {self.xp_to_next_level} XP")
 
         if self.attacking:
