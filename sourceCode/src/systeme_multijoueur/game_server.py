@@ -33,6 +33,8 @@ class SharedPlayer:
         self.x = x
         self.y = y
         self.id = pid
+        self.status = 'idle'
+        self.facing_right = True
 
 class GameServer:
     def __init__(self, port=55555, max_retries=10):
@@ -61,6 +63,7 @@ class GameServer:
         self.obstacles.clear()
         self.server_enemies.clear()
         self.dead_enemies.clear()
+        self.floor_tiles = []
         
         dg = DungeonGenerator()
         map_data, spawn_grid = dg.generate()
@@ -71,6 +74,8 @@ class GameServer:
             for x, col in enumerate(row):
                 if col == 'x':
                     self.obstacles.append(SharedObstacle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE, "black"))
+                elif col == ' ':
+                    self.floor_tiles.append({'x': x * TILE_SIZE, 'y': y * TILE_SIZE})
 
         available_monsters = ['tier1']
         if self.current_level >= 2: available_monsters.append('tier2')
@@ -218,6 +223,11 @@ class GameServer:
                             if pos and player_id in self.players:
                                 self.players[player_id].x = pos[0]
                                 self.players[player_id].y = pos[1]
+                            p_status = payload.get('status', 'idle')
+                            p_facing = payload.get('facing_right', True)
+                            if player_id in self.players:
+                                self.players[player_id].status = p_status
+                                self.players[player_id].facing_right = p_facing
                                 
                     # VERIFICATION DU PASSAGE AU NIVEAU SUIVANT
                     # (Si le nombre de joueurs prêts + ceux qui dorment = tous les joueurs)
@@ -241,6 +251,7 @@ class GameServer:
                         'dead_enemies': list(self.dead_enemies),
                         'server_enemies': enemies_list,
                         'obstacles': obs_list,
+                        'floor_tiles': getattr(self, 'floor_tiles', []) if self.game_state == 'PLAYING' else [],
                         'ready_count': len(self.players_ready_for_next),
                         'total_players': len(self.players)
                     }

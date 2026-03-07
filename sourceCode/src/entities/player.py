@@ -1,21 +1,44 @@
 import pygame
+import os
 from settings import *
 from weapon import Weapon
 import sys
 
 
 class Player(pygame.sprite.Sprite):
+    _animations_cache = None
+
     def __init__(self, pos, groups, obstacles):
         super().__init__(groups)
-        self.image = pygame.surface.Surface((TILE_SIZE, TILE_SIZE))
-        self.image.fill('white')
+        
+        # Animations
+        if Player._animations_cache:
+            self.animations = Player._animations_cache
+        else:
+            self.import_player_assets()
+            Player._animations_cache = self.animations
+            
+        self.status = 'idle'
+        self.frame_index = 0
+        self.animation_speed = 0.15
+        self.facing_right = True
+        
+        if self.animations[self.status]:
+            self.image = self.animations[self.status][self.frame_index]
+        else:
+            self.image = pygame.surface.Surface((108, 96))
+            self.image.fill('white')
+            
         self.rect = self.image.get_rect(topleft=pos)
-        self.pos = pygame.math.Vector2(self.rect.topleft)
+        self.hitbox = pygame.Rect(0, 0, 50, 40)
+        self.hitbox.midbottom = self.rect.midbottom
+        self.pos = pygame.math.Vector2(self.hitbox.topleft)
         self.direction = pygame.math.Vector2(0, 0)
         self.speed = 5
         self.obstacle_sprites = obstacles
+        # Attack setup
         self.attacking = False
-        self.attack_cooldown = 400
+        self.attack_cooldown = 250
         self.attack_time = 0
         self.current_weapon = None
         self.is_dashing = False
@@ -29,6 +52,7 @@ class Player(pygame.sprite.Sprite):
         self.hurt_time = 0
         self.invincibility_duration = 500
         self.knockback = pygame.math.Vector2(0, 0)
+        self.is_remote = False  # True for network-controlled clones
 
         self.level = 1
         self.max_health = 50
@@ -38,6 +62,101 @@ class Player(pygame.sprite.Sprite):
         
         self.attack_damage = 5
         self.inventory = {'gold': 0, 'iron': 0, 'xp': 0}
+
+    def import_player_assets(self):
+        self.animations = {'idle': [], 'walk': [], 'atk': [], 'ded': []}
+        mc_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'mc_frames')
+        
+        if os.path.exists(mc_path):
+            for animation in self.animations.keys():
+                frames = []
+                
+                # Only use correctly named frames for the animation state
+                files = [f for f in os.listdir(mc_path) if f.startswith(animation) and f.endswith('.png')]
+                files.sort()
+                for f in files:
+                    try:
+                        img = pygame.image.load(os.path.join(mc_path, f)).convert_alpha()
+                        
+                        # Crop empty space: raw images are 100x100 with content roughly from (33, 77) to (67, 100)
+                        crop_rect = (32, 68, 36, 32)
+                        cropped = pygame.Surface((36, 32), pygame.SRCALPHA)
+                        cropped.blit(img, (0, 0), crop_rect)
+                        
+                        # Scale the cropped image 3x to get a 108x96 sized sprite
+                        scaled_size = (108, 96)
+                        img = pygame.transform.scale(cropped, scaled_size)
+                        frames.append(img)
+                    except Exception as e:
+                        pass
+                if frames:
+                    self.animations[animation] = frames
+                else:
+                    # Fallback single frame surface
+                    scaled_size = (108, 96)
+                    surf = pygame.Surface(scaled_size, pygame.SRCALPHA)
+                    surf.fill('white')
+                    self.animations[animation] = [surf]
+        else:
+            for animation in self.animations.keys():
+                scaled_size = (108, 96)
+                surf = pygame.Surface(scaled_size, pygame.SRCALPHA)
+                surf.fill('white')
+                self.animations[animation] = [surf]
+
+    def get_status(self):
+        old_status = self.status
+        
+        if self.health <= 0:
+            self.status = 'ded'
+        elif self.attacking:
+            self.status = 'atk'
+        elif self.direction.magnitude() == 0:
+            self.status = 'idle'
+        else:
+            self.status = 'walk'
+            
+        if self.status != old_status:
+            self.frame_index = 0
+
+    def animate(self):
+        animation = self.animations[self.status]
+
+        # Use a slower speed for death animation so it feels dramatic
+        speed = 0.07 if self.status == 'ded' else self.animation_speed
+        self.frame_index += speed
+        if self.frame_index >= len(animation):
+            if self.status in ['atk', 'ded']:
+                # Hold last frame — mark death anim complete
+                self.frame_index = len(animation) - 1
+                if self.status == 'ded':
+                    self._death_anim_done = True
+            else:
+                self.frame_index = 0
+
+        # Set image
+        if animation:
+            image = animation[int(self.frame_index)]
+            if not self.facing_right:
+                self.image = pygame.transform.flip(image, True, False)
+            else:
+                self.image = image
+        else:
+            if not getattr(self, "fallback_surface", None):
+                self.fallback_surface = pygame.Surface((108, 96))
+                self.fallback_surface.fill('red') # Red so it's obvious a sprite is missing
+            self.image = self.fallback_surface
+            
+        if not self.vulnerable:
+            # Flicker effect when invulnerable
+            alpha = self.wave_value()
+            self.image.set_alpha(alpha)
+        else:
+            self.image.set_alpha(255)
+
+    def wave_value(self):
+        value = pygame.time.get_ticks() % 500
+        return 255 if value < 250 else 100
 
     def attack(self):
         self.attacking = True
@@ -85,13 +204,12 @@ class Player(pygame.sprite.Sprite):
 
         if self.direction.magnitude() != 0:
             self.direction = self.direction.normalize()
-
-        mouse_buttons = pygame.mouse.get_pressed()
-        if mouse_buttons[0] and not self.attacking:
-            self.attack()
+            if self.direction.x > 0:
+                self.facing_right = True
+            elif self.direction.x < 0:
+                self.facing_right = False
 
     def start_dash(self):
-        self.image.fill('blue')
         self.is_dashing = True
         self.can_dash = False
         self.dash_start_time = pygame.time.get_ticks()
@@ -107,7 +225,6 @@ class Player(pygame.sprite.Sprite):
 
         if self.is_dashing:
             if current_time - self.dash_start_time >= self.dash_duration:
-                self.image.fill('white')
                 self.is_dashing = False
                 self.last_dash_time = current_time
         elif not self.can_dash:
@@ -117,28 +234,28 @@ class Player(pygame.sprite.Sprite):
         if not self.vulnerable:
             if current_time - self.hurt_time >= self.invincibility_duration:
                 self.vulnerable = True
-                self.image.fill('white')
+                # self.image.set_alpha(255) is already handled gracefully in animate()
 
     def collision(self, direction, speed):
         if direction == 'horizontal':
             for sprite in self.obstacle_sprites:
-                if sprite.rect.colliderect(self.rect):
+                if sprite.rect.colliderect(self.hitbox):
                     if speed > 0:
-                        self.rect.right = sprite.rect.left
-                        self.pos.x = self.rect.x
+                        self.hitbox.right = sprite.rect.left
+                        self.pos.x = self.hitbox.x
                     if speed < 0:
-                        self.rect.left = sprite.rect.right
-                        self.pos.x = self.rect.x
-
+                        self.hitbox.left = sprite.rect.right
+                        self.pos.x = self.hitbox.x
+                        
         if direction == 'vertical':
             for sprite in self.obstacle_sprites:
-                if sprite.rect.colliderect(self.rect):
+                if sprite.rect.colliderect(self.hitbox):
                     if speed > 0:
-                        self.rect.bottom = sprite.rect.top
-                        self.pos.y = self.rect.y
+                        self.hitbox.bottom = sprite.rect.top
+                        self.pos.y = self.hitbox.y
                     if speed < 0:
-                        self.rect.top = sprite.rect.bottom
-                        self.pos.y = self.rect.y
+                        self.hitbox.top = sprite.rect.bottom
+                        self.pos.y = self.hitbox.y
 
     def move(self, speed):
         if self.direction.magnitude() != 0:
@@ -146,21 +263,22 @@ class Player(pygame.sprite.Sprite):
 
         dx = self.direction.x * speed + self.knockback.x
         self.pos.x += dx
-        self.rect.x = int(self.pos.x)
-
+        self.hitbox.x = int(self.pos.x)
         self.collision('horizontal', dx)
 
         dy = self.direction.y * speed + self.knockback.y
         self.pos.y += dy
-        self.rect.y = int(self.pos.y)
+        self.hitbox.y = int(self.pos.y)
         self.collision('vertical', dy)
+        
+        # Sync the visual rect with the physical hitbox bottom to prevent downward wall overlap
+        self.rect.midbottom = self.hitbox.midbottom
 
     def get_damage(self, amount, origin_center):
-        if self.vulnerable:
+        if self.vulnerable and self.health > 0:
             self.health -= amount
             self.vulnerable = False
             self.hurt_time = pygame.time.get_ticks()
-            self.image.fill('gray')
 
             my_pos = pygame.math.Vector2(self.rect.center)
             other_pos = pygame.math.Vector2(origin_center)
@@ -181,6 +299,12 @@ class Player(pygame.sprite.Sprite):
                 self.knockback = pygame.math.Vector2(0, 0)
 
     def update(self):
+        # Remote clones only animate — movement/input handled by network sync
+        if self.is_remote:
+            self.animate()
+            self.rect.midbottom = self.hitbox.midbottom
+            return
+        
         self.reduce_knockback()
         self.input()
         self.cooldowns()
@@ -199,10 +323,17 @@ class Player(pygame.sprite.Sprite):
         if self.attacking:
             self.direction.x = 0
             self.direction.y = 0
+        elif self.health <= 0:
+            # Dead — don't move or accept input, just animate
+            self.direction.x = 0
+            self.direction.y = 0
         elif self.is_dashing:
             self.move(self.dash_speed)
         else:
             self.move(self.speed)
+            
+        self.get_status()
+        self.animate()
 
     def get_save_data(self):
         return {

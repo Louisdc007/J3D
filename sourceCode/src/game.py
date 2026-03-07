@@ -7,7 +7,7 @@ import time
 from settings import *
 from entities.player import *
 from camera import CameraGroup
-from tile import Tile, DungeonEntrance
+from tile import Tile, DungeonEntrance, Floor
 from entities.enemy import Enemy
 from ui import UI
 from dungeon import DungeonGenerator
@@ -27,10 +27,20 @@ from game_server import GameServer
 class Game:
     def __init__(self):
         pygame.init()
+        pygame.mixer.init()
         self.fullscreen = False
         self.screen = pygame.display.set_mode(size=(WIDTH, HEIGHT))
         pygame.display.set_caption(GAME_NAME)
         self.clock = pygame.time.Clock()
+        
+        try:
+            music_path = os.path.join(base_path, 'assets', 'greed_hub.mp3')
+            if os.path.exists(music_path):
+                pygame.mixer.music.load(music_path)
+                pygame.mixer.music.set_volume(0.4)
+            self.music_playing = False
+        except Exception as e:
+            print(f"Erreur lors du chargement de la musique: {e}")
 
         self.game_state = 'menu'
         self.paused = False
@@ -280,6 +290,13 @@ class Game:
                     if pygame.Rect(WIDTH//2 - 150, HEIGHT//2 + 150, 300, 60).collidepoint(event.pos):
                         self.return_to_menu()
 
+            elif self.game_state == 'game_over':
+                if self._handle_game_over_event(event):
+                    self.return_to_menu()
+
+            elif self.game_state == 'dying':
+                pass  # Block all input during death animation
+
             elif self.game_state == 'intro':
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     self.game_state = self.intro_next_state
@@ -295,24 +312,31 @@ class Game:
                     self.check_pause_click(event.pos); continue 
 
                 if not self.is_multiplayer:
-                    if self.game_state == 'hub' and event.type == pygame.MOUSEBUTTONDOWN:
-                        action = self.hub.check_click(event.pos, self.player)
-                        if action == "build_action": self.save_all()
-                        elif action == "dungeon_random_check":
-                            ratio = self.game_time / self.full_day_duration
-                            h = int((self.morning_hour + (self.hours_in_day * ratio)) % 24)
-                            if h >= self.evening_hour or h < self.morning_hour: 
+                    if self.game_state == 'hub':
+                        ui_was_active = self.hub.paused_ui_active() or self.hub.build_mode_active
+                        action = None
+                        if event.type == pygame.MOUSEBUTTONDOWN:
+                            action = self.hub.check_click(event.pos, self.player)
+                            if action == "build_action": self.save_all()
+                            elif action == "dungeon_random_check":
+                                ratio = self.game_time / self.full_day_duration
+                                h = int((self.morning_hour + (self.hours_in_day * ratio)) % 24)
+                                if h >= self.evening_hour or h < self.morning_hour: 
+                                    self.resources_at_dungeon_start = self.player.inventory['iron']
+                                    self.game_state = 'loading'
+                                else: self.hub.waiting_for_night = True; self.hub.pending_dungeon_choice = 'random'
+                            elif action in ["wait_for_night_random", "rest", "rest_at_night"]:
+                                self.game_time = self.evening_duration; self.transition_active = True; self.transition_alpha = 0
+                                self.transition_type = 'wait_for_dungeon' if action == "wait_for_night_random" else 'night'
+                                self.transition_text = "La nuit tombe..."
+                            elif action == "explore_at_night": 
                                 self.resources_at_dungeon_start = self.player.inventory['iron']
                                 self.game_state = 'loading'
-                            else: self.hub.waiting_for_night = True; self.hub.pending_dungeon_choice = 'random'
-                        elif action in ["wait_for_night_random", "rest", "rest_at_night"]:
-                            self.game_time = self.evening_duration; self.transition_active = True; self.transition_alpha = 0
-                            self.transition_type = 'wait_for_dungeon' if action == "wait_for_night_random" else 'night'
-                            self.transition_text = "La nuit tombe..."
-                        elif action == "explore_at_night": 
-                            self.resources_at_dungeon_start = self.player.inventory['iron']
-                            self.game_state = 'loading'
-                    
+                        
+                        # Pass input to player if they didn't click inside a UI menu
+                        if action is None and not ui_was_active:
+                            self.player.single_input(event)
+                            
                     elif self.game_state == 'dungeon':
                         self.player.single_input(event)
                 
@@ -384,6 +408,10 @@ class Game:
                     
                     self.player.obstacle_sprites = self.obstacle_sprites
                     self.player.add(self.visible_sprites)
+                    self.player.pos.x = 0
+                    self.player.pos.y = 0
+                    self.player.hitbox.topleft = (0, 0)
+                    self.player.rect.midbottom = self.player.hitbox.midbottom
                     self.hub.spawn_npcs(self.player)
                 return 
 
@@ -398,6 +426,41 @@ class Game:
 
         if self.is_multiplayer: self.update_multi()
         else: self.update_solo()
+
+    def _handle_game_over_event(self, event):
+        """Returns True if game over button was clicked."""
+        if not hasattr(self, '_go_btn'): return False
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self._go_btn.collidepoint(event.pos):
+                return True
+        return False
+
+    def _draw_game_over(self):
+        """Draws the game over overlay on top of the dungeon."""
+        # Dark red semi-transparent overlay
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((80, 0, 0, 190))
+        self.screen.blit(overlay, (0, 0))
+
+        # "GAME OVER" text
+        font_big = pygame.font.Font(None, 120)
+        font_small = pygame.font.Font(None, 36)
+        title = font_big.render('GAME OVER', True, (220, 50, 50))
+        self.screen.blit(title, title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 60)))
+
+        sub = font_small.render('Vous avez perdu votre or et votre fer.', True, (200, 160, 160))
+        self.screen.blit(sub, sub.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 10)))
+
+        # Button
+        btn = getattr(self, '_go_btn', None)
+        if btn:
+            mouse = pygame.mouse.get_pos()
+            hover = btn.collidepoint(mouse)
+            color = (180, 40, 40) if hover else (120, 20, 20)
+            pygame.draw.rect(self.screen, color, btn, border_radius=10)
+            pygame.draw.rect(self.screen, (220, 80, 80), btn, 2, border_radius=10)
+            label = font_small.render('Retour au menu', True, (255, 255, 255))
+            self.screen.blit(label, label.get_rect(center=btn.center))
 
     def update_solo(self):
         if self.game_state == 'loading':
@@ -447,17 +510,30 @@ class Game:
             self.visible_sprites.update()
             
             if self.player.current_weapon:
-                hitted_enemies = pygame.sprite.spritecollide(self.player.current_weapon, self.attackable_sprites, False)
-                for e in hitted_enemies: e.get_damage(self.player.rect.center, self.player.attack_damage)
+                # Use a custom collision check against the enemy's hitbox instead of its massive visual rect
+                hitted_enemies = [
+                    e for e in self.attackable_sprites 
+                    if self.player.current_weapon.rect.colliderect(e.hitbox)
+                ]
+                for e in hitted_enemies: 
+                    e.get_damage(self.player.rect.center, self.player.attack_damage)
 
             for enemy in self.attackable_sprites:
-                enemy.enemy_update(self.player)
-                if pygame.sprite.collide_rect(enemy, self.player): self.player.get_damage(enemy.damage, enemy.rect.center)
+                # Use hitbox-to-hitbox distance for precise melee range regardless of sprite scale
+                enemy_dist = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center)
+                in_attack_range = enemy_dist < 55
+                
+                enemy.enemy_update(self.player, is_attacking=in_attack_range)
+                
+                if in_attack_range:
+                    self.player.get_damage(enemy.damage, enemy.hitbox.center)
                 if enemy.health <= 0: 
                     for item_type, (min_amt, max_amt) in enemy.loot_table.items():
                         amount = random.randint(min_amt, max_amt)
                         for _ in range(amount):
-                            offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); pos = (enemy.rect.x + offset_x, enemy.rect.y + offset_y)
+                            # Drop items relative to hitbox center (the enemy's feet)
+                            offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); 
+                            pos = (enemy.hitbox.centerx + offset_x, enemy.hitbox.centery + offset_y)
                             Item(pos, [self.visible_sprites, self.item_sprites], item_type)
                     enemy.kill()
 
@@ -466,10 +542,21 @@ class Game:
 
             if len([e for e in self.attackable_sprites if hasattr(e, 'health')]) == 0 and not self.transition_active:
                 self.transition_active = True; self.transition_alpha = 0; self.transition_type = 'morning'; self.game_time = self.full_day_duration
-            if self.player.health <= 0: 
+            if self.player.health <= 0 and self.game_state == 'dungeon':
+                # Start death sequence: clear loot, enter 'dying' state
                 self.player.inventory['gold'] = 0
                 self.player.inventory['iron'] = 0
-                self.return_to_menu()
+                self.game_state = 'dying'
+                self.player._death_anim_done = False
+
+        if self.game_state == 'dying':
+            # Keep updating animations while death animation plays
+            self.visible_sprites.update()
+            if getattr(self.player, '_death_anim_done', False):
+                self.game_state = 'game_over'
+                # Build game over button once
+                btn_w, btn_h = 260, 56
+                self._go_btn = pygame.Rect((WIDTH - btn_w) // 2, HEIGHT // 2 + 60, btn_w, btn_h)
 
     def update_multi(self):
         if not self.network: return
@@ -491,7 +578,9 @@ class Game:
             
         payload = {
             'action': action, 
-            'pos': (self.player.rect.x, self.player.rect.y)
+            'pos': (self.player.hitbox.x, self.player.hitbox.y),
+            'status': self.player.status,
+            'facing_right': self.player.facing_right
         }
         
         self.pending_multi_action = None
@@ -500,7 +589,9 @@ class Game:
             my_enemy_pos = {}
             if self.player_id == self.host_id:
                 for enemy in self.attackable_sprites:
-                    if hasattr(enemy, 'multiplayer_id'): my_enemy_pos[enemy.multiplayer_id] = (enemy.rect.x, enemy.rect.y)
+                    # Send hitbox position as the authoritative physics point
+                    if hasattr(enemy, 'multiplayer_id'): 
+                        my_enemy_pos[enemy.multiplayer_id] = (enemy.hitbox.x, enemy.hitbox.y)
             
             payload['killed_enemies'] = list(self.killed_enemies_queue) 
             payload['enemy_positions'] = my_enemy_pos
@@ -555,12 +646,23 @@ class Game:
             if pid != self.player_id:
                 if pid not in self.other_players: 
                     clone = Player((pdata.x, pdata.y), [self.visible_sprites], self.obstacle_sprites)
-                    clone.input = lambda: None 
+                    clone.input = lambda: None
+                    clone.is_remote = True
                     self.other_players[pid] = clone
-                else: 
-                    self.other_players[pid].rect.topleft = (pdata.x, pdata.y)
-                    self.other_players[pid].pos.x = pdata.x
-                    self.other_players[pid].pos.y = pdata.y
+                else:
+                    clone = self.other_players[pid]
+                    # Apply to hitbox (authoritative physics position), then sync visual rect
+                    clone.hitbox.x = pdata.x
+                    clone.hitbox.y = pdata.y
+                    clone.pos.x = pdata.x
+                    clone.pos.y = pdata.y
+                    clone.rect.midbottom = clone.hitbox.midbottom
+                    # Sync animation state
+                    new_status = getattr(pdata, 'status', 'idle')
+                    if clone.status != new_status:
+                        clone.status = new_status
+                        clone.frame_index = 0
+                    clone.facing_right = getattr(pdata, 'facing_right', True)
         
         for pid in list(self.other_players.keys()):
             if pid not in active_pids: self.other_players[pid].kill(); del self.other_players[pid]
@@ -573,8 +675,10 @@ class Game:
                 eid = enemy.multiplayer_id
                 if eid in dead_enemies or eid not in srv_enemies: enemy.kill()
                 elif self.player_id != self.host_id:
-                    enemy.rect.x = srv_enemies[eid]['x']; enemy.rect.y = srv_enemies[eid]['y']
-                    enemy.pos.x = enemy.rect.x; enemy.pos.y = enemy.rect.y
+                    # Target authoritative hitbox position, then sync visual rect
+                    enemy.hitbox.x = srv_enemies[eid]['x']; enemy.hitbox.y = srv_enemies[eid]['y']
+                    enemy.pos.x = enemy.hitbox.x; enemy.pos.y = enemy.hitbox.y
+                    enemy.rect.midbottom = enemy.hitbox.midbottom
 
         self.visible_sprites.update()
 
@@ -592,16 +696,18 @@ class Game:
                         if dist < min_dist:
                             min_dist = dist
                             target = p
-                enemy.enemy_update(target)
             else:
-                current_time = pygame.time.get_ticks()
-                if not enemy.vulnerable and current_time - enemy.hit_time > 400:
-                    enemy.vulnerable = True
-                    enemy.image.fill(enemy.base_color)
-                
-            if pygame.sprite.collide_rect(enemy, self.player): 
-                self.player.get_damage(enemy.damage, enemy.rect.center)
-            
+                target = self.player
+
+            # Use hitbox-to-hitbox distance for precise range regardless of sprite scale
+            enemy_dist = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center)
+            in_attack_range = enemy_dist < 55
+
+            enemy.enemy_update(target, is_attacking=in_attack_range)
+
+            if in_attack_range:
+                self.player.get_damage(enemy.damage, enemy.hitbox.center)
+
             if enemy.health <= 0:
                 if hasattr(enemy, 'multiplayer_id'): self.killed_enemies_queue.append(enemy.multiplayer_id)
                 for item_type, (min_amt, max_amt) in enemy.loot_table.items():
@@ -619,11 +725,20 @@ class Game:
         dungeon = DungeonGenerator(); map_data, player_spawn = dungeon.generate()
         for row_index, row in enumerate(map_data):
             for col_index, cell in enumerate(row):
-                if cell == 'x': Tile((col_index * TILE_SIZE, row_index * TILE_SIZE), [self.visible_sprites, self.obstacle_sprites])
+                pos = (col_index * TILE_SIZE, row_index * TILE_SIZE)
+                if cell == 'x': 
+                    Tile(pos, [self.visible_sprites, self.obstacle_sprites])
+                elif cell == ' ':
+                    Floor(pos, [self.visible_sprites])
         spawn_pos = (player_spawn[0] * TILE_SIZE, player_spawn[1] * TILE_SIZE)
         entrance = DungeonEntrance(spawn_pos, [self.visible_sprites])
         self.dungeon_entrance_pos = pygame.math.Vector2(spawn_pos); self.dungeon_entrance_rect = entrance.rect
         self.player.rect.topleft = spawn_pos; self.player.pos = pygame.math.Vector2(spawn_pos); self.player.obstacle_sprites = self.obstacle_sprites; self.player.add(self.visible_sprites)
+        # Restore HP and grant spawn invincibility so player can't be insta-killed
+        self.player.health = self.player.max_health
+        self.player.vulnerable = False
+        self.player.hurt_time = pygame.time.get_ticks()
+        self.player.invincibility_duration = 3000  # 3 seconds of spawn protection
         for room in dungeon.rooms[1:]:
             available_tiers = ['tier1']
             if self.player.level >= 3: available_tiers.append('tier2')
@@ -641,10 +756,17 @@ class Game:
         self.other_players.clear() 
         
         for obs in server_data.get('obstacles', []): Tile((obs['x'], obs['y']), [self.visible_sprites, self.obstacle_sprites])
+        for floor in server_data.get('floor_tiles', []): Floor((floor['x'], floor['y']), [self.visible_sprites])
+        
         spawn_pos = server_data.get('spawn_pos', (0,0))
         entrance = DungeonEntrance(spawn_pos, [self.visible_sprites])
         self.dungeon_entrance_pos = pygame.math.Vector2(spawn_pos); self.dungeon_entrance_rect = entrance.rect
         self.player.rect.topleft = spawn_pos; self.player.pos = pygame.math.Vector2(spawn_pos); self.player.obstacle_sprites = self.obstacle_sprites; self.player.add(self.visible_sprites)
+        # Spawn protection
+        self.player.health = self.player.max_health
+        self.player.vulnerable = False
+        self.player.hurt_time = pygame.time.get_ticks()
+        self.player.invincibility_duration = 3000
         for edata in server_data.get('server_enemies', []):
             enemy = Enemy([self.visible_sprites, self.attackable_sprites], (edata['x'], edata['y']), self.obstacle_sprites, edata['type'])
             enemy.multiplayer_id = edata['id']
@@ -678,6 +800,19 @@ class Game:
                 elif self.multi_state == 'waiting_others': self.draw_multi_waiting()
             if self.transition_active: self.draw_fade_transition()
             if self.paused: self.draw_pause_menu()
+            pygame.display.flip()
+
+        elif self.game_state == 'dying':
+            # Keep dungeon visible while death animation plays
+            self.screen.fill('black')
+            self.visible_sprites.custom_draw(self.player)
+            pygame.display.flip()
+
+        elif self.game_state == 'game_over':
+            # Dungeon behind + dark overlay
+            self.screen.fill('black')
+            self.visible_sprites.custom_draw(self.player)
+            self._draw_game_over()
             pygame.display.flip()
 
     def draw_multi_lobby(self):
@@ -899,8 +1034,28 @@ class Game:
             text_surface.set_alpha(text_opacity); text_rect = text_surface.get_rect(center=(WIDTH // 2, HEIGHT // 2))
             self.screen.blit(text_surface, text_rect)
 
+    def manage_music(self):
+        should_play = False
+        
+        if not self.is_multiplayer and self.game_state == 'hub':
+            should_play = True
+        elif self.game_state in ['multi_mode_select', 'multi_code_input', 'multi_searching', 'multi_lobby']:
+            should_play = True
+            
+        if should_play and not getattr(self, 'music_playing', False):
+            try:
+                pygame.mixer.music.play(-1)
+                self.music_playing = True
+            except: pass
+        elif not should_play and getattr(self, 'music_playing', False):
+            try:
+                pygame.mixer.music.stop()
+                self.music_playing = False
+            except: pass
+
     def run(self):
         while True:
+            self.manage_music()
             self.events()
             self.update()
             self.draw()
