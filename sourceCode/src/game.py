@@ -713,7 +713,7 @@ class Game:
                 for item_type, (min_amt, max_amt) in enemy.loot_table.items():
                     amount = random.randint(min_amt, max_amt)
                     for _ in range(amount):
-                        offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); pos = (enemy.rect.x + offset_x, enemy.rect.y + offset_y)
+                        offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); pos = (enemy.hitbox.centerx + offset_x, enemy.hitbox.centery + offset_y)
                         Item(pos, [self.visible_sprites, self.item_sprites], item_type)
                 enemy.kill()
 

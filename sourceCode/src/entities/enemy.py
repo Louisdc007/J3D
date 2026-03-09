@@ -56,10 +56,6 @@ class Enemy(pygame.sprite.Sprite):
         self.hitbox = pygame.Rect(0, 0, TILE_SIZE, TILE_SIZE)
         self.hitbox.midbottom = self.rect.midbottom
 
-        # Hit flash overlay (scaled to visual size)
-        self.flash_surf = pygame.Surface(self.visual_size, pygame.SRCALPHA)
-        self.flash_surf.fill((255, 255, 255, 160))
-
         self.vulnerable = True
         self.hit_time = 0
         self._is_flashing = False
@@ -159,7 +155,7 @@ class Enemy(pygame.sprite.Sprite):
         # White flash on hit
         if self._is_flashing:
             frame = frame.copy()
-            frame.blit(self.flash_surf, (0, 0))
+            frame.fill((150, 150, 150, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
         self.image = frame
 
