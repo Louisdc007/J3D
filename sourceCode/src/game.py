@@ -239,8 +239,10 @@ class Game:
         self.game_state = 'menu'
         self.game_time = 0
         self.paused = False
+        self.paused = False
         self.transition_active = False
         self.killed_enemies_queue.clear()
+        self.request_start = False
         
         self.visible_sprites.empty()
         self.obstacle_sprites.empty()
@@ -311,9 +313,10 @@ class Game:
 
             elif self.game_state == 'multi_lobby':
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    if self.player_id == 0:
-                        if pygame.Rect(WIDTH // 2 - 100, 450, 200, 50).collidepoint(event.pos):
-                            self.pending_multi_action = 'start_game'
+                    if self.game_state == 'multi_lobby' and self.player_id == 0:
+                        btn = pygame.Rect(WIDTH//2 - 100, 450, 200, 60)
+                        if btn.collidepoint(event.pos):
+                            self.request_start = True
 
             elif self.game_state == 'multi_gameover':
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -391,7 +394,7 @@ class Game:
         elif self.multi_state == 'rescue':
             if pygame.Rect(WIDTH//2 - btn_width//2, 300, btn_width, btn_height).collidepoint(pos):
                 self.player.health = 10
-                self.pending_multi_action = 'ready_next'
+                self.player.inventory = {k: 0 for k in self.player.inventory.keys()}
                 self.multi_state = 'waiting_others'
             elif pygame.Rect(WIDTH//2 - btn_width//2, 400, btn_width, btn_height).collidepoint(pos):
                 self.multi_resting_for_level = self.multi_level + 1
@@ -598,10 +601,14 @@ class Game:
                 self.transition_alpha = 0
                 self.transition_type = None
 
-        action = self.pending_multi_action if self.pending_multi_action else 'idle'
-        
+        action = 'idle'
         if self.multi_state == 'resting':
             action = 'resting'
+        elif self.multi_state == 'waiting_others':
+            action = 'ready_next'
+        elif getattr(self, 'request_start', False):
+            action = 'start_game'
+            self.request_start = False
         
         if self.player.health <= 0 and self.multi_state not in ['gameover', 'resting']:
             action = 'player_died'
@@ -614,8 +621,6 @@ class Game:
             'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0
         }
         
-        self.pending_multi_action = None
-        
         if self.multi_state == 'playing':
             my_enemy_pos = {}
             if self.player_id == self.host_id:
@@ -626,7 +631,6 @@ class Game:
             
             payload['killed_enemies'] = list(self.killed_enemies_queue) 
             payload['enemy_positions'] = my_enemy_pos
-            self.killed_enemies_queue.clear()
             
         self.current_payload = payload
         
@@ -790,6 +794,7 @@ class Game:
     def build_map_multi(self, server_data):
         self.visible_sprites.empty(); self.obstacle_sprites.empty(); self.attackable_sprites.empty(); self.item_sprites.empty()
         self.other_players.clear() 
+        self.killed_enemies_queue.clear()
         
         for obs in server_data.get('obstacles', []): Tile((obs['x'], obs['y']), [self.visible_sprites, self.obstacle_sprites])
         for floor in server_data.get('floor_tiles', []): Floor((floor['x'], floor['y']), [self.visible_sprites])
@@ -798,8 +803,10 @@ class Game:
         entrance = DungeonEntrance(spawn_pos, [self.visible_sprites])
         self.dungeon_entrance_pos = pygame.math.Vector2(spawn_pos); self.dungeon_entrance_rect = entrance.rect
         self.player.rect.topleft = spawn_pos; self.player.pos = pygame.math.Vector2(spawn_pos); self.player.obstacle_sprites = self.obstacle_sprites; self.player.add(self.visible_sprites)
+        self.player.rect.topleft = spawn_pos; self.player.pos = pygame.math.Vector2(spawn_pos); self.player.obstacle_sprites = self.obstacle_sprites; self.player.add(self.visible_sprites)
         # Spawn protection
-        self.player.health = self.player.max_health
+        if self.multi_level <= 1:
+            self.player.health = self.player.max_health
         self.player.vulnerable = False
         self.player.hurt_time = pygame.time.get_ticks()
         self.player.invincibility_duration = 3000
