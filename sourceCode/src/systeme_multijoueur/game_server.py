@@ -195,7 +195,7 @@ class GameServer:
                     elif action == 'player_died':
                         self.game_state = 'GAME_OVER'
                         
-                    elif action == 'ready_next':
+                    elif action == 'ready_next' and payload.get('client_level', 0) == self.current_level:
                         self.players_ready_for_next.add(player_id)
                             
                     if self.game_state == 'PLAYING':
@@ -213,7 +213,7 @@ class GameServer:
                                     self.server_enemies[e_id][0] = epos[0]
                                     self.server_enemies[e_id][1] = epos[1]
                         
-                        if action == 'resting':
+                        if action == 'resting' and payload.get('client_level', 0) == self.current_level:
                             self.resting_players.add(player_id)
                             if player_id in self.players:
                                 self.players[player_id].x = -9999
