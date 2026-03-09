@@ -241,7 +241,9 @@ class GameServer:
 
                 with self.lock:
                     enemies_list = [{'id': eid, 'x': d[0], 'y': d[1], 'type': d[2]} for eid, d in self.server_enemies.items()]
-                    obs_list = [{'x': o.rect.x, 'y': o.rect.y} for o in self.obstacles] if self.game_state == 'PLAYING' else []
+                    client_needs_map = payload.get('client_level', 0) != self.current_level
+                    obs_list = [{'x': o.rect.x, 'y': o.rect.y} for o in self.obstacles] if (self.game_state == 'PLAYING' and client_needs_map) else []
+                    floor_list = getattr(self, 'floor_tiles', []) if (self.game_state == 'PLAYING' and client_needs_map) else []
                     
                     response = {
                         'state': self.game_state,
@@ -251,7 +253,7 @@ class GameServer:
                         'dead_enemies': list(self.dead_enemies),
                         'server_enemies': enemies_list,
                         'obstacles': obs_list,
-                        'floor_tiles': getattr(self, 'floor_tiles', []) if self.game_state == 'PLAYING' else [],
+                        'floor_tiles': floor_list,
                         'ready_count': len(self.players_ready_for_next),
                         'total_players': len(self.players)
                     }

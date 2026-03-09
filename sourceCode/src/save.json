@@ -3,10 +3,10 @@
         "level": 5,
         "current_health": 75,
         "max_health": 75,
-        "xp": 223,
+        "xp": 232,
         "xp_to_next": 438,
         "gold": 2,
-        "iron": 38,
+        "iron": 41,
         "attack_damage": 29
     },
     "hub": {

@@ -580,7 +580,8 @@ class Game:
             'action': action, 
             'pos': (self.player.hitbox.x, self.player.hitbox.y),
             'status': self.player.status,
-            'facing_right': self.player.facing_right
+            'facing_right': self.player.facing_right,
+            'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0
         }
         
         self.pending_multi_action = None
@@ -683,8 +684,12 @@ class Game:
         self.visible_sprites.update()
 
         if self.player.current_weapon:
-            hitted_enemies = pygame.sprite.spritecollide(self.player.current_weapon, self.attackable_sprites, False)
-            for e in hitted_enemies: e.get_damage(self.player.rect.center, self.player.attack_damage)
+            hitted_enemies = [
+                e for e in self.attackable_sprites 
+                if self.player.current_weapon.rect.colliderect(e.hitbox)
+            ]
+            for e in hitted_enemies: 
+                e.get_damage(self.player.rect.center, self.player.attack_damage)
 
         for enemy in self.attackable_sprites:
             if self.player_id == self.host_id: 
