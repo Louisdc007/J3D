@@ -143,6 +143,7 @@ class Game:
                     self.game_state = 'multi_lobby'
                     self.multi_state = 'lobby'
                     self.pending_multi_action = None
+                    self.start_network_thread()
             else:
                 self.multi_status = "Erreur serveur"
                 self.game_state = 'multi_mode_select'
@@ -164,6 +165,7 @@ class Game:
                     self.game_state = 'multi_lobby'
                     self.multi_state = 'lobby'
                     self.pending_multi_action = None
+                    self.start_network_thread()
                 else:
                     self.multi_status = "Serveur non prêt"
                     self.game_state = 'multi_code_input'
@@ -177,6 +179,32 @@ class Game:
     def is_player_at_entrance(self):
         if self.dungeon_entrance_rect is None: return False
         return self.player.rect.colliderect(self.dungeon_entrance_rect)
+
+    def start_network_thread(self):
+        self.network_running = True
+        self.current_payload = {
+            'action': 'idle', 
+            'pos': (0, 0),
+            'status': 'idle',
+            'facing_right': True,
+            'client_level': 0
+        }
+        self.multi_server_data_cache = None
+        self.network_thread = threading.Thread(target=self._network_task, daemon=True)
+        self.network_thread.start()
+
+    def _network_task(self):
+        while self.network_running and self.network and self.network.client:
+            try:
+                # Always send the latest payload
+                response = self.network.send(self.current_payload)
+                if response:
+                    self.multi_server_data_cache = response
+                time.sleep(1/60) # Target 60 updates/sec maximum
+            except Exception as e:
+                print(f"Network thread error: {e}")
+                break
+        self.network_running = False
 
     def save_all(self):
         data = {'player': self.player.get_save_data(), 'hub': self.hub.get_save_data()}
@@ -193,6 +221,7 @@ class Game:
             btn['text'] = "PLEIN ÉCRAN : NON"
 
     def return_to_menu(self):
+        self.network_running = False
         if self.game_server:
             self.game_server.stop()
             self.game_server = None
@@ -224,6 +253,7 @@ class Game:
         self.load_save_if_exists()
 
     def clean_exit(self):
+        self.network_running = False
         if self.game_server: self.game_server.stop()
         if self.network and self.network.client:
             try: self.network.client.close()
@@ -598,8 +628,9 @@ class Game:
             payload['enemy_positions'] = my_enemy_pos
             self.killed_enemies_queue.clear()
             
-        server_data = self.network.send(payload)
+        self.current_payload = payload
         
+        server_data = self.multi_server_data_cache
         if server_data:
             self.multi_server_data_cache = server_data
             srv_state = server_data.get('state')
