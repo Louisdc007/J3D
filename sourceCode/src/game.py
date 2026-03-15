@@ -77,8 +77,9 @@ class Game:
         self.host_id = 0
         self.other_players = {}
         self.multi_mode = None
-        self.multi_code = ""
+        self.multi_ip = ""
         self.multi_status = ""
+        self.show_firewall_help = False
         self.multi_state = 'lobby'
         self.multi_level = 1
         self.multi_resting_for_level = -1 
@@ -130,7 +131,8 @@ class Game:
         try:
             self.game_server = GameServer(port=55555)
             if self.game_server.start():
-                self.multi_code = self.game_server.pin_code
+                from systeme_multijoueur.network import Network
+                self.multi_ip = Network.get_primary_ip()
                 self.is_multiplayer = True
                 self.multi_mode = 'server'
                 time.sleep(0.5)
@@ -142,7 +144,7 @@ class Game:
                     self.player = Player((0, 0), [self.visible_sprites], self.obstacle_sprites)
                     self.game_state = 'multi_lobby'
                     self.multi_state = 'lobby'
-                    self.multi_code = "AUTO"
+                    self.multi_ip = ""
                     self.pending_multi_action = None
                     self.start_network_thread()
             else:
@@ -169,28 +171,28 @@ class Game:
 
     def connect_to_server(self):
         try:
-            code = self.multi_code.strip()
-            if code:
+            ip_to_use = self.multi_ip.strip()
+            if ip_to_use:
                 # Direct IP connection
-                self.connect_direct(code)
+                self.connect_direct(ip_to_use)
             else:
                 # Auto-discovery
                 discovered = Network.discover()
                 if discovered:
                     host, port = discovered
-                    self.multi_code = host # Auto-fill UI
+                    self.multi_ip = host # Auto-fill UI
                     if not self._finalize_connection(host, port):
                         self.multi_status = "Serveur occupé"
-                        self.game_state = 'multi_code_input'
+                        self.game_state = 'multi_ip_input'
                 else:
                     self.multi_status = "Aucun serveur J3D trouvé"
-                    self.game_state = 'multi_code_input'
+                    self.game_state = 'multi_ip_input'
         except Exception as e:
             self.multi_status = f"Erreur: {str(e)}"
-            self.game_state = 'multi_code_input'
+            self.game_state = 'multi_ip_input'
         except Exception as e:
             self.multi_status = f"Erreur: {str(e)}"
-            self.game_state = 'multi_code_input'
+            self.game_state = 'multi_ip_input'
 
     def connect_direct(self, ip_address):
         """Connect directly to a server IP, bypassing UDP broadcast."""
@@ -204,10 +206,10 @@ class Game:
                     if self._finalize_connection(ip_address, port + offset):
                         return
                 self.multi_status = f"Connexion échouée à {ip_address}"
-                self.game_state = 'multi_code_input'
+                self.game_state = 'multi_ip_input'
         except Exception as e:
             self.multi_status = f"Erreur: {str(e)}"
-            self.game_state = 'multi_code_input'
+            self.game_state = 'multi_ip_input'
 
     def is_player_at_entrance(self):
         if self.dungeon_entrance_rect is None: return False
@@ -312,7 +314,7 @@ class Game:
                                 if self.has_save_file: self.game_state = 'hub'
                                 else: self.intro.reset(); self.game_state = 'intro'; self.intro_next_state = 'hub'
                             elif btn['action'] == 'multi_placeholder': 
-                                self.multi_mode = None; self.multi_code = ""; self.multi_status = ""; self.game_state = 'multi_mode_select'
+                                self.multi_mode = None; self.multi_ip = ""; self.multi_status = ""; self.game_state = 'multi_mode_select'
                             elif btn['action'] == 'go_to_options': self.game_state = 'options'
                             elif btn['action'] == 'quit_game': self.clean_exit()
             
@@ -333,21 +335,17 @@ class Game:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     cx, cy = WIDTH // 2, HEIGHT // 2
                     if pygame.Rect(cx - 220, cy - 80, 180, 70).collidepoint(event.pos): self.launch_game_server()
-                    elif pygame.Rect(cx + 40, cy - 80, 180, 70).collidepoint(event.pos): self.game_state = 'multi_code_input'; self.multi_code = ""; self.multi_status = ""
+                    elif pygame.Rect(cx + 40, cy - 80, 180, 70).collidepoint(event.pos): self.game_state = 'multi_ip_input'; self.multi_ip = ""; self.multi_status = ""
                     elif pygame.Rect(cx - 90, cy + 80, 180, 50).collidepoint(event.pos): self.game_state = 'menu'
-
-            elif self.game_state == 'multi_code_input':
+            elif self.game_state == 'multi_ip_input':
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE: self.game_state = 'multi_mode_select'
-                    elif event.key == pygame.K_BACKSPACE: self.multi_code = self.multi_code[:-1]
+                    elif event.key == pygame.K_BACKSPACE: self.multi_ip = self.multi_ip[:-1]
                     elif hasattr(event, 'unicode'):
                         # Allow digits, dots for IP, and limit to 15 chars
-                        if (event.unicode.isdigit() or event.unicode == '.') and len(self.multi_code) < 15:
-                            self.multi_code += event.unicode
+                        if (event.unicode.isdigit() or event.unicode == '.') and len(self.multi_ip) < 15:
+                            self.multi_ip += event.unicode
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    is_ip = '.' in self.multi_code
-                    is_auto = self.multi_code == "" or self.multi_code == "AUTO"
-                    
                     # Search button
                     if pygame.Rect(WIDTH // 2 - 100, 290, 200, 50).collidepoint(event.pos):
                         self.game_state = 'multi_searching'; self.multi_status = "Recherche..."; self.connect_to_server()
@@ -355,8 +353,7 @@ class Game:
                     elif pygame.Rect(WIDTH // 2 - 100, 360, 200, 50).collidepoint(event.pos): self.game_state = 'multi_mode_select'
                     # Firewall Help button
                     elif pygame.Rect(WIDTH // 2 - 150, 430, 300, 40).collidepoint(event.pos):
-                        import webbrowser
-                        webbrowser.open("https://github.com/Louisdc007/J3D/wiki/Firewall-Help") # Placeholder or internal text
+                        self.show_firewall_help = not getattr(self, 'show_firewall_help', False)
 
             elif self.game_state == 'multi_lobby':
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -499,7 +496,7 @@ class Game:
         dt = self.clock.get_time() / 1000.0
         if dt > 0.1: dt = 0.016 # Prevent huge jumps if window is moved
         
-        if self.game_state in ['menu', 'options', 'multi_mode_select', 'multi_code_input', 'multi_searching']: return
+        if self.game_state in ['menu', 'options', 'multi_mode_select', 'multi_ip_input', 'multi_searching']: return
         
         if self.game_state == 'intro':
             if self.intro.update(): self.game_state = self.intro_next_state; self.save_all()
@@ -867,7 +864,7 @@ class Game:
         if self.game_state == 'menu': self.draw_main_menu()
         elif self.game_state == 'options': self.draw_options_menu()
         elif self.game_state == 'multi_mode_select': self.draw_multi_mode_select()
-        elif self.game_state == 'multi_code_input': self.draw_multi_code_input()
+        elif self.game_state == 'multi_ip_input': self.draw_multi_ip_input()
         elif self.game_state == 'multi_searching': self.draw_multi_searching()
         elif self.game_state == 'multi_lobby': self.draw_multi_lobby()
         elif self.game_state == 'multi_resting': self.draw_multi_resting()
@@ -911,12 +908,12 @@ class Game:
         self.screen.fill((30, 30, 40))
         title = self.title_font.render("LOBBY", True, (255, 255, 255))
         self.screen.blit(title, title.get_rect(center=(WIDTH//2, 80)))
-        code = pygame.font.Font(None, 60).render(f"Code : {self.multi_code}", True, (0, 255, 100))
-        self.screen.blit(code, code.get_rect(center=(WIDTH//2, 180)))
-        
         primary_ip = Network.get_primary_ip()
-        ip_txt = pygame.font.Font(None, 30).render(f"IP Serveur : {primary_ip}", True, (100, 150, 255))
-        self.screen.blit(ip_txt, ip_txt.get_rect(center=(WIDTH//2, 230)))
+        ip_txt = pygame.font.Font(None, 50).render(f"IP SERVEUR : {primary_ip}", True, (100, 255, 100))
+        self.screen.blit(ip_txt, ip_txt.get_rect(center=(WIDTH//2, 180)))
+        
+        info_txt = pygame.font.Font(None, 24).render("Les autres joueurs doivent entrer cette IP pour rejoindre", True, (180, 180, 180))
+        self.screen.blit(info_txt, info_txt.get_rect(center=(WIDTH//2, 230)))
         
         players_count = self.multi_server_data_cache.get('total_players', 1) if self.multi_server_data_cache else 1
         ptext = pygame.font.Font(None, 40).render(f"Joueurs connectés : {players_count}", True, (200, 200, 200))
@@ -1089,46 +1086,75 @@ class Game:
             
         pygame.display.flip()
 
-    def draw_multi_code_input(self):
+    def draw_multi_ip_input(self):
         self.screen.fill((30, 30, 40))
         title = self.title_font.render("Rejoindre par IP", True, (255, 255, 255))
         self.screen.blit(title, title.get_rect(center=(WIDTH//2, 80)))
-        hint_text = "Entrez l'IP du serveur ou vide pour chercher"
+        
+        hint_text = "Entrez l'IP du serveur ou laissez vide pour chercher"
         hint = pygame.font.Font(None, 24).render(hint_text, True, (180, 180, 180))
         self.screen.blit(hint, hint.get_rect(center=(WIDTH//2, 140)))
         
-        info = pygame.font.Font(None, 18).render("Windows: Autorisez 'Python/J3D' dans le Pare-feu", True, (255, 120, 120))
-        self.screen.blit(info, info.get_rect(center=(WIDTH//2, 165)))
-        
         code_rect = pygame.Rect(WIDTH//2 - 200, 200, 400, 60)
-        pygame.draw.rect(self.screen, (100, 100, 100), code_rect)
-        pygame.draw.rect(self.screen, (255, 255, 255), code_rect, 2)
+        pygame.draw.rect(self.screen, (100, 100, 100), code_rect, border_radius=5)
+        pygame.draw.rect(self.screen, (255, 255, 255), code_rect, 2, border_radius=5)
         
-        display_text = self.multi_code if self.multi_code else "Recherche auto..."
-        code_display = self.menu_font.render(display_text, True, (100, 100, 100) if not self.multi_code else (255, 255, 255))
-        self.screen.blit(code_display, (code_rect.x + 10, code_rect.y + 10))
+        display_text = self.multi_ip if self.multi_ip else "Recherche auto..."
+        color = (255, 255, 255) if self.multi_ip else (150, 150, 150)
+        code_display = self.menu_font.render(display_text, True, color)
+        self.screen.blit(code_display, (code_rect.x + 15, code_rect.y + 10))
         
         search_btn = pygame.Rect(WIDTH//2 - 100, 290, 200, 50)
         back_btn = pygame.Rect(WIDTH//2 - 100, 360, 200, 50)
         help_btn = pygame.Rect(WIDTH//2 - 150, 430, 300, 40)
         
         mouse_pos = pygame.mouse.get_pos()
-        for rect, text, is_enabled in [
-            (search_btn, "RECHERCHER", True), 
-            (back_btn, "RETOUR", True),
-            (help_btn, "AIDE PARE-FEU", True)
-        ]:
+        for rect, text in [ (search_btn, "RECHERCHER"), (back_btn, "RETOUR"), (help_btn, "AIDE CONNEXION") ]:
             is_hovered = rect.collidepoint(mouse_pos)
             color = (100, 150, 100) if is_hovered else (80, 80, 80)
             pygame.draw.rect(self.screen, color, rect, border_radius=8)
             pygame.draw.rect(self.screen, (200, 200, 200), rect, 2, border_radius=8)
             
-            btn_txt = pygame.font.Font(None, 28).render(text, True, (255, 255, 255))
-            self.screen.blit(btn_txt, btn_txt.get_rect(center=rect.center))
+            f = pygame.font.Font(None, 24) if "AIDE" in text else self.menu_font
+            txt_surf = f.render(text, True, (255, 255, 255))
+            self.screen.blit(txt_surf, txt_surf.get_rect(center=rect.center))
+
         if self.multi_status:
-            status_txt = pygame.font.Font(None, 20).render(self.multi_status, True, (200, 100, 100))
-            self.screen.blit(status_txt, status_txt.get_rect(center=(WIDTH//2, 430)))
+            status_txt = pygame.font.Font(None, 20).render(self.multi_status, True, (255, 100, 100))
+            self.screen.blit(status_txt, status_txt.get_rect(center=(WIDTH//2, 490)))
+
+        if getattr(self, 'show_firewall_help', False):
+            self.draw_firewall_help()
+            
         pygame.display.flip()
+
+    def draw_firewall_help(self):
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 230))
+        self.screen.blit(overlay, (0,0))
+        
+        lines = [
+            "COMMENT SE CONNECTER ?",
+            "",
+            "1. L'HÔTE lance 'SERVEUR'. Son IP s'affiche dans le lobby.",
+            "2. Le CLIENT tape cette IP ou laisse vide pour scanner.",
+            "",
+            "SI CA NE MARCHE PAS (SOUVENT SUR WINDOWS) :",
+            "- Ouvrez 'Pare-feu et protection réseau' sur l'Hôte PC.",
+            "- Cliquez sur 'Autoriser une application via le pare-feu'.",
+            "- Trouvez 'python.exe' (ou J3D) et cochez 'Privé' ET 'Public'.",
+            "- Assurez-vous d'être sur le même réseau WiFi / Ethernet.",
+            "",
+            "Cliquez sur 'AIDE CONNEXION' pour fermer ce guide."
+        ]
+        
+        y = 100
+        for i, line in enumerate(lines):
+            color = (255, 255, 255) if i == 0 or "SI CA NE MARCHE PAS" in line else (200, 200, 200)
+            font = self.menu_font if i == 0 else pygame.font.Font(None, 24)
+            surf = font.render(line, True, color)
+            self.screen.blit(surf, surf.get_rect(center=(WIDTH//2, y)))
+            y += 35
 
     def draw_multi_searching(self):
         self.screen.fill((30, 30, 40))
@@ -1153,7 +1179,7 @@ class Game:
         
         if not self.is_multiplayer and self.game_state == 'hub':
             should_play = True
-        elif self.game_state in ['multi_mode_select', 'multi_code_input', 'multi_searching', 'multi_lobby']:
+        elif self.game_state in ['multi_mode_select', 'multi_ip_input', 'multi_searching', 'multi_lobby']:
             should_play = True
             
         if should_play and not getattr(self, 'music_playing', False):
