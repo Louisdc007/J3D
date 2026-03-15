@@ -56,6 +56,8 @@ class GameServer:
         self.obstacles = []
         self.server_enemies = {}
         self.dead_enemies = set()
+        self.server_items = {} # ID -> {'x':x, 'y':y, 'type':type}
+        self.item_id_counter = 0
         self.pending_hits = []
         self.spawn_x = 0
         self.spawn_y = 0
@@ -64,6 +66,8 @@ class GameServer:
         self.obstacles.clear()
         self.server_enemies.clear()
         self.dead_enemies.clear()
+        self.server_items.clear()
+        self.item_id_counter = 0
         self.floor_tiles = []
         
         dg = DungeonGenerator()
@@ -233,6 +237,17 @@ class GameServer:
                                 if e_id in self.server_enemies:
                                     self.server_enemies[e_id][0] = epos[0]
                                     self.server_enemies[e_id][1] = epos[1]
+                            
+                            # ITEMS: Host spawns new items
+                            new_items = payload.get('new_items', [])
+                            for item in new_items:
+                                i_id = self.item_id_counter
+                                self.item_id_counter += 1
+                                self.server_items[i_id] = {
+                                    'x': item['x'], 
+                                    'y': item['y'], 
+                                    'type': item['type']
+                                }
                         else:
                             # Non-host players can report hits
                             hits = payload.get('reported_hits', [])
@@ -254,6 +269,12 @@ class GameServer:
                             if player_id in self.players:
                                 self.players[player_id].status = p_status
                                 self.players[player_id].facing_right = p_facing
+                                
+                        # PICKUP: Any player can report picking up multiple items
+                        picked_list = payload.get('pickup_items', [])
+                        for p_id in picked_list:
+                            if p_id in self.server_items:
+                                del self.server_items[p_id]
                                 
                     # VERIFICATION DU PASSAGE AU NIVEAU SUIVANT
                     # (Si le nombre de joueurs prêts + ceux qui dorment = tous les joueurs)
@@ -278,6 +299,7 @@ class GameServer:
                         'players': self.players,
                         'dead_enemies': list(self.dead_enemies),
                         'server_enemies': enemies_list,
+                        'server_items': self.server_items,
                         'obstacles': obs_list,
                         'floor_tiles': floor_list,
                         'ready_count': len(self.players_ready_for_next),

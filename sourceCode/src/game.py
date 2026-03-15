@@ -85,6 +85,8 @@ class Game:
         self.multi_resting_for_level = -1 
         self.killed_enemies_queue = []
         self.reported_hits_queue = []
+        self.spawn_items_queue = []
+        self.current_pickups = []
         self.multi_server_data_cache = None
         self.pending_multi_action = None
         
@@ -608,17 +610,38 @@ class Game:
                 if in_attack_range:
                     self.player.get_damage(enemy.damage, enemy.hitbox.center)
                 if enemy.health <= 0: 
-                    for item_type, (min_amt, max_amt) in enemy.loot_table.items():
-                        amount = random.randint(min_amt, max_amt)
-                        for _ in range(amount):
-                            # Drop items relative to hitbox center (the enemy's feet)
-                            offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); 
-                            pos = (enemy.hitbox.centerx + offset_x, enemy.hitbox.centery + offset_y)
-                            Item(pos, [self.visible_sprites, self.item_sprites], item_type)
+                    # Spawning items: Only the Host queues them officially
+                    if not self.is_multiplayer or self.player_id == self.host_id:
+                        for item_type, (min_amt, max_amt) in enemy.loot_table.items():
+                            amount = random.randint(min_amt, max_amt)
+                            for _ in range(amount):
+                                offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); 
+                                pos = (enemy.hitbox.centerx + offset_x, enemy.hitbox.centery + offset_y)
+                                if self.is_multiplayer:
+                                    self.spawn_items_queue.append({'x': pos[0], 'y': pos[1], 'type': item_type})
+                                else:
+                                    Item(pos, [self.visible_sprites, self.item_sprites], item_type)
                     enemy.kill()
 
-            for item in pygame.sprite.spritecollide(self.player, self.item_sprites, True):
-                if item.type in self.player.inventory: self.player.inventory[item.type] += 1
+            picked_items = []
+            for item in self.item_sprites:
+                # Use hitbox-to-hitbox collision for better feel
+                if item.hitbox.colliderect(self.player.hitbox):
+                    if self.is_multiplayer:
+                        mid = getattr(item, 'multiplayer_id', None)
+                        if mid is not None and not getattr(item, '_picked', False):
+                            item._picked = True
+                            picked_items.append(mid)
+                            # Local immediate feedback
+                            if item.type == 'health': self.player.health = min(self.player.max_health, self.player.health + 10)
+                            elif item.type in self.player.inventory: self.player.inventory[item.type] += 1
+                            item.kill() 
+                    else:
+                        if item.type == 'health': self.player.health = min(self.player.max_health, self.player.health + 10)
+                        elif item.type in self.player.inventory: self.player.inventory[item.type] += 1
+                        item.kill()
+            
+            self.current_pickups = picked_items
 
             if len([e for e in self.attackable_sprites if hasattr(e, 'health')]) == 0 and not self.transition_active:
                 self.transition_active = True; self.transition_timer = 0; self.transition_duration = 3.0; self.transition_type = 'morning'; self.game_time = self.full_day_duration
@@ -672,8 +695,10 @@ class Game:
             'pos': (self.player.hitbox.x, self.player.hitbox.y),
             'status': self.player.status,
             'facing_right': self.player.facing_right,
-            'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0
+            'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0,
+            'pickup_items': getattr(self, 'current_pickups', [])
         }
+        self.current_pickups = [] # Clear after adding to payload
         
         if self.multi_state == 'playing':
             my_enemy_pos = {}
@@ -685,10 +710,12 @@ class Game:
             
             payload['killed_enemies'] = list(self.killed_enemies_queue) 
             payload['reported_hits'] = list(self.reported_hits_queue)
+            payload['new_items'] = list(self.spawn_items_queue)
             payload['enemy_positions'] = my_enemy_pos
             
             self.killed_enemies_queue.clear()
             self.reported_hits_queue.clear()
+            self.spawn_items_queue.clear()
             
         self.current_payload = payload
         
@@ -826,15 +853,32 @@ class Game:
 
             if enemy.health <= 0:
                 if hasattr(enemy, 'multiplayer_id'): self.killed_enemies_queue.append(enemy.multiplayer_id)
-                for item_type, (min_amt, max_amt) in enemy.loot_table.items():
-                    amount = random.randint(min_amt, max_amt)
-                    for _ in range(amount):
-                        offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); pos = (enemy.hitbox.centerx + offset_x, enemy.hitbox.centery + offset_y)
-                        Item(pos, [self.visible_sprites, self.item_sprites], item_type)
+                # Spawning items: Only the Host queues them officially
+                if self.player_id == self.host_id:
+                    for item_type, (min_amt, max_amt) in enemy.loot_table.items():
+                        amount = random.randint(min_amt, max_amt)
+                        for _ in range(amount):
+                            offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); 
+                            pos = (enemy.hitbox.centerx + offset_x, enemy.hitbox.centery + offset_y)
+                            self.spawn_items_queue.append({'x': pos[0], 'y': pos[1], 'type': item_type})
                 enemy.kill()
 
-        for item in pygame.sprite.spritecollide(self.player, self.item_sprites, True):
-            if item.type in self.player.inventory: self.player.inventory[item.type] += 1
+        # ITEM SYNC: Sync local items with server authoritative list
+        srv_items = server_data.get('server_items', {})
+        # Remove items no longer on server
+        for item in list(self.item_sprites):
+            if hasattr(item, 'multiplayer_id'):
+                if item.multiplayer_id not in srv_items:
+                    item.kill()
+        
+        # Add new items from server
+        existing_ids = {getattr(item, 'multiplayer_id', None) for item in self.item_sprites}
+        for i_id, idata in srv_items.items():
+            if idata and i_id not in existing_ids:
+                new_item = Item((idata['x'], idata['y']), [self.visible_sprites, self.item_sprites], idata['type'])
+                new_item.multiplayer_id = i_id
+
+        # No automatic pickup collide here, it's handled in the main update_multi loop via reports
 
     def build_map_solo(self):
         self.visible_sprites.empty(); self.obstacle_sprites.empty(); self.attackable_sprites.empty(); self.item_sprites.empty()
