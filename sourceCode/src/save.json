@@ -1,12 +1,12 @@
 {
     "player": {
         "level": 5,
-        "current_health": 75,
+        "current_health": -4,
         "max_health": 75,
-        "xp": 232,
+        "xp": 398,
         "xp_to_next": 438,
-        "gold": 2,
-        "iron": 41,
+        "gold": 0,
+        "iron": 0,
         "attack_damage": 29
     },
     "hub": {
@@ -159,6 +159,26 @@
             {
                 "type": "flower",
                 "x": 1120,
+                "y": 320
+            },
+            {
+                "type": "path",
+                "x": 800,
+                "y": 256
+            },
+            {
+                "type": "path",
+                "x": 800,
+                "y": 288
+            },
+            {
+                "type": "path",
+                "x": 800,
+                "y": 288
+            },
+            {
+                "type": "path",
+                "x": 800,
                 "y": 320
             }
         ],
