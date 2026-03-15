@@ -151,12 +151,17 @@ class GameServer:
             
             print(f"[SERVER] Demarrage du broadcast discovery. PIN: {self.pin_code}")
             
+            from network import Network
+            
             while self.running:
                 try:
                     msg = f"J3D_ANNOUNCE:{self.pin_code}:{self.port}"
                     encoded = msg.encode()
-                    # Broadcast to all typical local subnets
-                    targets = ['255.255.255.255', '<broadcast>']
+                    
+                    targets = Network.get_broadcasts()
+                    if '255.255.255.255' not in targets: targets.append('255.255.255.255')
+                    if '<broadcast>' not in targets: targets.append('<broadcast>')
+                    
                     for target in set(targets):
                         try:
                             broadcaster.sendto(encoded, (target, 55666))
