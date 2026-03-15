@@ -1,5 +1,6 @@
 import socket
 import pickle
+import struct
 import time
 import ipaddress
 
@@ -89,28 +90,42 @@ class Network:
 
     def __init__(self, server="127.0.0.1", port=55555):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.settimeout(10)
+        self.client.settimeout(2)
         self.server = server
         self.port = port
         self.addr = (self.server, self.port)
         self.p = self.connect()
 
-    def receive_data(self):
+    def _recv_exact(self, n):
+        """Read exactly n bytes from the socket."""
         data = b""
-        while True:
+        while len(data) < n:
             try:
-                packet = self.client.recv(32768)
+                packet = self.client.recv(n - len(data))
                 if not packet:
                     return None
                 data += packet
-                try:
-                    return pickle.loads(data)
-                except (pickle.UnpicklingError, EOFError):
-                    continue
             except socket.timeout:
                 return None
             except:
                 return None
+        return data
+
+    def receive_data(self):
+        """Receive a length-prefixed pickled message."""
+        try:
+            raw_len = self._recv_exact(4)
+            if raw_len is None:
+                return None
+            msg_len = struct.unpack('>I', raw_len)[0]
+            if msg_len > 10_000_000:  # Safety: reject messages > 10MB
+                return None
+            data = self._recv_exact(msg_len)
+            if data is None:
+                return None
+            return pickle.loads(data)
+        except:
+            return None
 
     def connect(self):
         try:
@@ -121,7 +136,9 @@ class Network:
 
     def send(self, data):
         try:
-            self.client.sendall(pickle.dumps(data))
+            raw = pickle.dumps(data)
+            header = struct.pack('>I', len(raw))
+            self.client.sendall(header + raw)
             return self.receive_data()
         except:
             return None

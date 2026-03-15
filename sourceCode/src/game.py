@@ -200,7 +200,7 @@ class Game:
                 response = self.network.send(self.current_payload)
                 if response:
                     self.multi_server_data_cache = response
-                time.sleep(1/60) # Target 60 updates/sec maximum
+                time.sleep(1/30) # Target 30 updates/sec — plenty for sync, halves traffic
             except Exception as e:
                 print(f"Network thread error: {e}")
                 break

@@ -1,5 +1,6 @@
 import socket
 import pickle
+import struct
 import random
 import threading
 import sys
@@ -168,6 +169,35 @@ class GameServer:
             except Exception:
                 pass
 
+    def _send_msg(self, sock, data):
+        """Send a length-prefixed pickled message."""
+        raw = pickle.dumps(data)
+        header = struct.pack('>I', len(raw))
+        sock.sendall(header + raw)
+
+    def _recv_exact(self, sock, n):
+        """Read exactly n bytes from a socket."""
+        data = b""
+        while len(data) < n:
+            packet = sock.recv(n - len(data))
+            if not packet:
+                return None
+            data += packet
+        return data
+
+    def _recv_msg(self, sock):
+        """Receive a length-prefixed pickled message."""
+        raw_len = self._recv_exact(sock, 4)
+        if raw_len is None:
+            return None
+        msg_len = struct.unpack('>I', raw_len)[0]
+        if msg_len > 10_000_000:
+            return None
+        data = self._recv_exact(sock, msg_len)
+        if data is None:
+            return None
+        return pickle.loads(data)
+
     def handle_player(self, client_socket, addr):
         with self.lock:
             player_id = self.player_count
@@ -175,15 +205,15 @@ class GameServer:
             self.players[player_id] = SharedPlayer(self.spawn_x, self.spawn_y, player_id)
         
         try:
+            client_socket.settimeout(5)
             init_data = {'player_id': player_id}
-            client_socket.sendall(pickle.dumps(init_data))
+            self._send_msg(client_socket, init_data)
             
             while self.running and player_id in self.players:
-                data = client_socket.recv(8192)
-                if not data:
+                payload = self._recv_msg(client_socket)
+                if payload is None:
                     break
                 
-                payload = pickle.loads(data)
                 action = payload.get('action', 'idle')
                 pos = payload.get('pos')
                 
@@ -258,7 +288,7 @@ class GameServer:
                         'total_players': len(self.players)
                     }
                 
-                client_socket.sendall(pickle.dumps(response))
+                self._send_msg(client_socket, response)
                 
         except Exception:
             pass
