@@ -229,7 +229,7 @@ class Game:
                 response = self.network.send(self.current_payload)
                 if response:
                     self.multi_server_data_cache = response
-                time.sleep(1/30) # Target 30 updates/sec — plenty for sync, halves traffic
+                time.sleep(0.016) # Target 60 updates/sec for smooth enemy movement on client
             except Exception as e:
                 print(f"Network thread error: {e}")
                 break
@@ -266,6 +266,7 @@ class Game:
         self.other_players.clear()
         self.multi_state = 'lobby'
         self.game_state = 'menu'
+        self._menu_lock_time = time.time() + 0.5  # Prevent accidental double-click into SOLO mode
         self.game_time = 0
         self.paused = False
         self.paused = False
@@ -298,6 +299,7 @@ class Game:
             if event.type == pygame.QUIT: self.clean_exit()
 
             if self.game_state == 'menu':
+                if getattr(self, '_menu_lock_time', 0) > time.time(): continue
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     for btn in self.menu_buttons:
                         if btn['rect'].collidepoint(event.pos):
@@ -327,7 +329,7 @@ class Game:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     cx, cy = WIDTH // 2, HEIGHT // 2
                     if pygame.Rect(cx - 220, cy - 80, 180, 70).collidepoint(event.pos): self.launch_game_server()
-                    elif pygame.Rect(cx + 40, cy - 80, 180, 70).collidepoint(event.pos): self.game_state = 'multi_code_input'; self.multi_code = ""
+                    elif pygame.Rect(cx + 40, cy - 80, 180, 70).collidepoint(event.pos): self.game_state = 'multi_code_input'; self.multi_code = ""; self.multi_status = ""
                     elif pygame.Rect(cx - 90, cy + 80, 180, 50).collidepoint(event.pos): self.game_state = 'menu'
 
             elif self.game_state == 'multi_code_input':
@@ -1057,6 +1059,11 @@ class Game:
             pygame.draw.rect(self.screen, (200, 200, 200), rect, 2)
             txt = self.menu_font.render(text, True, (255, 255, 255))
             self.screen.blit(txt, txt.get_rect(center=rect.center))
+        
+        if self.multi_status:
+            status_txt = pygame.font.Font(None, 20).render(self.multi_status, True, (200, 100, 100))
+            self.screen.blit(status_txt, status_txt.get_rect(center=(WIDTH//2, 430)))
+            
         pygame.display.flip()
 
     def draw_multi_code_input(self):

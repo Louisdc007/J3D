@@ -39,50 +39,41 @@ class Network:
 
     @classmethod
     def discover(cls, pin=None):
-        print(f"[DEBUG-CLIENT] Demarrage de la decouverte. PIN cherche: {pin}")
+        print(f"[DEBUG-CLIENT] Ecoute des annonces de serveur. PIN cherche: {pin}")
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.settimeout(1.0)
-            
-            msg = f"J3D_DISCOVER:{pin}" if pin else "J3D_DISCOVER"
-            encoded = msg.encode()
-            targets = cls.get_broadcasts()
-            
-            print(f"[DEBUG-CLIENT] IPs cibles pour le broadcast: {targets}")
+            listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            if hasattr(socket, 'SO_REUSEPORT'):
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+            else:
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind(('', 55666))
+            listener.settimeout(1.0)
 
-            for attempt in range(10):
-                print(f"[DEBUG-CLIENT] Tentative {attempt + 1}/10")
-                for target in targets:
-                    try:
-                        # Changement du port de découverte ici
-                        sock.sendto(encoded, (target, 55666))
-                        print(f"[DEBUG-CLIENT] Paquet envoye a {target}:55666")
-                    except Exception as e:
-                        print(f"[DEBUG-CLIENT] Echec de l'envoi a {target} : {e}")
-                
-                start = time.time()
-                while time.time() - start < 1.0:
-                    try:
-                        data, addr = sock.recvfrom(1024)
-                        resp = data.decode().strip()
-                        print(f"[DEBUG-CLIENT] Message recu de {addr} : {resp}")
-                        
-                        if resp.startswith("J3D_SERVER:"):
-                            parts = resp.split(':')
-                            if len(parts) >= 3:
-                                host = addr[0]
-                                port = int(parts[2])
-                                sock.close()
-                                print(f"[DEBUG-CLIENT] Serveur valide trouve a {host}:{port}")
-                                return (host, port)
-                    except socket.timeout:
-                        pass
-                    except Exception as e:
-                        print(f"[DEBUG-CLIENT] Erreur pendant l'ecoute : {e}")
+            print("[DEBUG-CLIENT] En attente des broadcasts du serveur pendant 10s...")
+            start_time = time.time()
             
-            print("[DEBUG-CLIENT] Aucun serveur trouve apres toutes les tentatives.")
-            sock.close()
+            while time.time() - start_time < 10.0:
+                try:
+                    data, addr = listener.recvfrom(1024)
+                    resp = data.decode().strip()
+                    
+                    if resp.startswith("J3D_ANNOUNCE:"):
+                        parts = resp.split(':')
+                        if len(parts) >= 3:
+                            announce_pin = parts[1].strip()
+                            port = int(parts[2])
+                            if announce_pin == str(pin).strip() or pin is None:
+                                host = addr[0]
+                                listener.close()
+                                print(f"[DEBUG-CLIENT] Serveur valide annonce a {host}:{port}")
+                                return (host, port)
+                except socket.timeout:
+                    print(f"[DEBUG-CLIENT] Toujours en ecoute... ({(time.time()-start_time):.1f}s écoulées)")
+                except Exception as e:
+                    print(f"[DEBUG-CLIENT] Erreur pendant l'ecoute : {e}")
+            
+            print("[DEBUG-CLIENT] Aucun serveur annonce trouve apres toutes les tentatives.")
+            listener.close()
             return None
         except Exception as e:
             print(f"[DEBUG-CLIENT] Erreur critique dans discover : {e}")

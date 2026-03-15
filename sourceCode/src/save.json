@@ -1,7 +1,7 @@
 {
     "player": {
         "level": 5,
-        "current_health": -4,
+        "current_health": 75,
         "max_health": 75,
         "xp": 398,
         "xp_to_next": 438,
@@ -182,7 +182,7 @@
                 "y": 320
             }
         ],
-        "banked_iron": 304,
-        "banked_gold": 348
+        "banked_iron": 298,
+        "banked_gold": 342
     }
 }

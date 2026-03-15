@@ -119,7 +119,7 @@ class GameServer:
             return False
         
         self.running = True
-        threading.Thread(target=self.discovery_listener, daemon=True).start()
+        threading.Thread(target=self.discovery_broadcaster, daemon=True).start()
         threading.Thread(target=self.accept_players, daemon=True).start()
         return True
 
@@ -142,38 +142,36 @@ class GameServer:
                 continue
         return False
 
-    def discovery_listener(self):
-        discovery_socket = None
+    def discovery_broadcaster(self):
+        """Actively broadcast server presence so clients bypass firewall blocks."""
+        broadcaster = None
         try:
-            discovery_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            if hasattr(socket, 'SO_REUSEPORT'):
-                discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            else:
-                discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            discovery_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            discovery_socket.bind(('', 55666))
-            discovery_socket.settimeout(1.0)
+            broadcaster = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            broadcaster.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            
+            print(f"[SERVER] Demarrage du broadcast discovery. PIN: {self.pin_code}")
             
             while self.running:
                 try:
-                    data, addr = discovery_socket.recvfrom(1024)
-                    message = data.decode().strip()
-                    if message.startswith("J3D_DISCOVER"):
-                        parts = message.split(':')
-                        requested_pin = parts[1].strip() if len(parts) > 1 else None
-                        
-                        if requested_pin is None or requested_pin == str(self.pin_code).strip():
-                            response = f"J3D_SERVER:OK:{self.port}"
-                            discovery_socket.sendto(response.encode(), addr)
-                except socket.timeout:
-                    continue
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                    msg = f"J3D_ANNOUNCE:{self.pin_code}:{self.port}"
+                    encoded = msg.encode()
+                    # Broadcast to all typical local subnets
+                    targets = ['255.255.255.255', '<broadcast>']
+                    for target in set(targets):
+                        try:
+                            broadcaster.sendto(encoded, (target, 55666))
+                        except Exception:
+                            pass
+                    time.sleep(1.0)
+                except Exception as e:
+                    print(f"[SERVER] Erreur broadcast : {e}")
+                    time.sleep(1.0)
+                    
+        except Exception as e:
+            print(f"[SERVER] Erreur critique broadcaster : {e}")
         finally:
-            if discovery_socket:
-                discovery_socket.close()
+            if broadcaster:
+                broadcaster.close()
 
     def accept_players(self):
         while self.running:
