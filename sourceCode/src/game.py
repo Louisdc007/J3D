@@ -84,18 +84,20 @@ class Game:
         self.multi_level = 1
         self.multi_resting_for_level = -1 
         self.killed_enemies_queue = []
+        self.reported_hits_queue = []
         self.multi_server_data_cache = None
         self.pending_multi_action = None
         
         self.transition_active = False
-        self.transition_alpha = 0
-        self.transition_duration = 420 
+        self.transition_timer = 0
+        self.transition_duration = 1.5 # seconds
         self.transition_text = ""
         self.transition_font = pygame.font.Font(None, 60)
         self.transition_type = None
         self.dungeon_entrance_pos = None
         self.dungeon_entrance_rect = None
         self.resources_at_dungeon_start = None
+        self._transition_mid_triggered = False
 
         self.setup_menus()
         self.load_save_if_exists()
@@ -395,7 +397,7 @@ class Game:
                                     self.game_state = 'loading'
                                 else: self.hub.waiting_for_night = True; self.hub.pending_dungeon_choice = 'random'
                             elif action in ["wait_for_night_random", "rest", "rest_at_night"]:
-                                self.game_time = self.evening_duration; self.transition_active = True; self.transition_alpha = 0
+                                self.game_time = self.evening_duration; self.transition_active = True; self.transition_timer = 0
                                 self.transition_type = 'wait_for_dungeon' if action == "wait_for_night_random" else 'night'
                                 self.transition_text = "La nuit tombe..."
                             elif action == "explore_at_night": 
@@ -544,39 +546,45 @@ class Game:
             else:
                 self.game_time += self.clock.get_time()
         else:
-            self.transition_alpha += 1
+            self.transition_timer += dt
         
         if self.game_state == 'hub' and self.game_time >= self.evening_duration: self.hub.night_arrived = True
         
         if self.game_state == 'dungeon' and self.game_time >= self.full_day_duration and not self.transition_active:
-            self.transition_active = True; self.transition_alpha = 0; self.transition_type = 'morning'; self.transition_text = "Il est l'heure de rentrer..."
+            self.transition_active = True; self.transition_timer = 0; self.transition_duration = 3.0; self.transition_type = 'morning'; self.transition_text = "Il est l'heure de rentrer..."
         
-        if self.transition_active and self.transition_alpha == self.transition_duration // 2:
-            if self.transition_type == 'morning':
-                self.game_state = 'hub'
-                self.game_time = 0
-                self.hub.night_arrived = False
-                
-                if self.is_player_at_entrance():
-                    self.transition_text = "Retour réussi"
-                else:
-                    self.transition_text = "Sauvé de justesse, mais vous avez tout perdu..."
-                    self.player.health = 1
-                    self.player.inventory['gold'] = 0
-                    self.player.inventory['iron'] = 0
-                        
-                self.save_all()
-            elif self.transition_type in ['night', 'wait_for_dungeon']:
-                if self.transition_type == 'wait_for_dungeon':
-                    self.resources_at_dungeon_start = self.player.inventory['iron']
-                    self.game_time = self.evening_duration
-                    self.game_state = 'loading'
-                else:
+        if self.transition_active:
+            self.transition_timer += dt  # Consistent update for solo
+            if self.transition_timer >= self.transition_duration / 2 and not self._transition_mid_triggered:
+                self._transition_mid_triggered = True
+                if self.transition_type == 'morning':
+                    self.game_state = 'hub'
                     self.game_time = 0
-                self.hub.night_arrived = False
-                self.save_all()
+                    self.hub.night_arrived = False
+                    
+                    if self.is_player_at_entrance():
+                        self.transition_text = "Retour réussi"
+                    else:
+                        self.transition_text = "Sauvé de justesse, mais vous avez tout perdu..."
+                        self.player.health = 1
+                        self.player.inventory['gold'] = 0
+                        self.player.inventory['iron'] = 0
+                            
+                    self.save_all()
+                elif self.transition_type in ['night', 'wait_for_dungeon']:
+                    if self.transition_type == 'wait_for_dungeon':
+                        self.resources_at_dungeon_start = self.player.inventory['iron']
+                        self.game_time = self.evening_duration
+                        self.game_state = 'loading'
+                    else:
+                        self.game_time = 0
+                    self.hub.night_arrived = False
+                    self.save_all()
 
-        if self.transition_alpha >= self.transition_duration: self.transition_active = False; self.transition_alpha = 0
+            if self.transition_timer >= self.transition_duration:
+                self.transition_active = False
+                self.transition_timer = 0
+                self._transition_mid_triggered = False
         
         if self.game_state == 'dungeon' and not self.transition_active:
             self.visible_sprites.update(dt)
@@ -613,7 +621,7 @@ class Game:
                 if item.type in self.player.inventory: self.player.inventory[item.type] += 1
 
             if len([e for e in self.attackable_sprites if hasattr(e, 'health')]) == 0 and not self.transition_active:
-                self.transition_active = True; self.transition_alpha = 0; self.transition_type = 'morning'; self.game_time = self.full_day_duration
+                self.transition_active = True; self.transition_timer = 0; self.transition_duration = 3.0; self.transition_type = 'morning'; self.game_time = self.full_day_duration
             if self.player.health <= 0 and self.game_state == 'dungeon':
                 # Start death sequence: clear loot, enter 'dying' state
                 self.player.inventory['gold'] = 0
@@ -634,11 +642,18 @@ class Game:
         if not self.network: return
         
         if self.transition_active:
-            self.transition_alpha += 1
-            if self.transition_alpha >= self.transition_duration:
+            self.transition_timer += dt
+            if self.transition_timer >= self.transition_duration:
                 self.transition_active = False
-                self.transition_alpha = 0
+                self.transition_timer = 0
                 self.transition_type = None
+
+        # Protection during transition: no movement, no damage, no attacks
+        if self.transition_active:
+            self.player.direction.x = 0; self.player.direction.y = 0
+            self.player.vulnerable = False
+            self.player.attacking = False
+            # We skip the rest of the combat/movement update to be safe
 
         action = 'idle'
         if self.multi_state == 'resting':
@@ -669,7 +684,11 @@ class Game:
                         my_enemy_pos[enemy.multiplayer_id] = (enemy.hitbox.x, enemy.hitbox.y)
             
             payload['killed_enemies'] = list(self.killed_enemies_queue) 
+            payload['reported_hits'] = list(self.reported_hits_queue)
             payload['enemy_positions'] = my_enemy_pos
+            
+            self.killed_enemies_queue.clear()
+            self.reported_hits_queue.clear()
             
         self.current_payload = payload
         
@@ -699,8 +718,8 @@ class Game:
                         self.game_time = self.evening_duration
                         
                         self.transition_active = True
-                        self.transition_alpha = 0
-                        self.transition_duration = 180
+                        self.transition_timer = 0
+                        self.transition_duration = 1.5 # Durée fixe pour tout le monde
                         self.transition_type = 'multi_level_start'
                         self.transition_text = f"Donjon {self.multi_level}"
                         
@@ -754,6 +773,17 @@ class Game:
                     enemy.hitbox.x = srv_enemies[eid]['x']; enemy.hitbox.y = srv_enemies[eid]['y']
                     enemy.pos.x = enemy.hitbox.x; enemy.pos.y = enemy.hitbox.y
                     enemy.rect.midbottom = enemy.hitbox.midbottom
+            
+        # HOST Processes hits reported by clients
+        if self.player_id == self.host_id:
+            pending_hits = server_data.get('pending_hits', [])
+            for hit in pending_hits:
+                eid = hit.get('eid')
+                # Find the enemy by multiplayer_id
+                for enemy in self.attackable_sprites:
+                    if getattr(enemy, 'multiplayer_id', -1) == eid:
+                        enemy.get_damage(hit['origin'], hit['dmg'])
+                        break
 
         self.visible_sprites.update(dt)
 
@@ -763,7 +793,16 @@ class Game:
                 if self.player.current_weapon.rect.colliderect(e.hitbox)
             ]
             for e in hitted_enemies: 
-                e.get_damage(self.player.rect.center, self.player.attack_damage)
+                if self.player_id == self.host_id:
+                    e.get_damage(self.player.rect.center, self.player.attack_damage)
+                else:
+                    # Client reports the hit instead of applying it locally to authoritative sprite
+                    if hasattr(e, 'multiplayer_id'):
+                        self.reported_hits_queue.append({
+                            'eid': e.multiplayer_id,
+                            'origin': (self.player.rect.centerx, self.player.rect.centery),
+                            'dmg': self.player.attack_damage
+                        })
 
         for enemy in self.attackable_sprites:
             # Use hitbox-to-hitbox distance for precise range regardless of sprite scale
@@ -1168,7 +1207,7 @@ class Game:
         pygame.display.flip()
 
     def draw_fade_transition(self):
-        progress = self.transition_alpha / self.transition_duration
+        progress = self.transition_timer / self.transition_duration
         if progress < 1/3: opacity = int((progress / (1/3)) * 255); text_opacity = int((progress / (1/3)) * 255)
         elif progress < 2/3: opacity = 255; text_opacity = 255
         else: fade_out_progress = (progress - 2/3) / (1/3); opacity = int((1 - fade_out_progress) * 255); text_opacity = int((1 - fade_out_progress) * 255)

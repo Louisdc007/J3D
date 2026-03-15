@@ -56,6 +56,7 @@ class GameServer:
         self.obstacles = []
         self.server_enemies = {}
         self.dead_enemies = set()
+        self.pending_hits = []
         self.spawn_x = 0
         self.spawn_y = 0
 
@@ -232,6 +233,11 @@ class GameServer:
                                 if e_id in self.server_enemies:
                                     self.server_enemies[e_id][0] = epos[0]
                                     self.server_enemies[e_id][1] = epos[1]
+                        else:
+                            # Non-host players can report hits
+                            hits = payload.get('reported_hits', [])
+                            for hit in hits:
+                                self.pending_hits.append(hit)
                         
                         if action == 'resting' and payload.get('client_level', 0) == self.current_level:
                             self.resting_players.add(player_id)
@@ -275,8 +281,14 @@ class GameServer:
                         'obstacles': obs_list,
                         'floor_tiles': floor_list,
                         'ready_count': len(self.players_ready_for_next),
-                        'total_players': len(self.players)
+                        'total_players': len(self.players),
+                        'pending_hits': self.pending_hits[:] # Copy for this response
                     }
+                
+                # Clear pending hits after sending to Host (ID 0 usually)
+                if player_id == 0:
+                    with self.lock:
+                        self.pending_hits = []
                 
                 self._send_msg(client_socket, response)
                 
