@@ -336,9 +336,16 @@ class Game:
                 if event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE: self.game_state = 'multi_mode_select'
                     elif event.key == pygame.K_BACKSPACE: self.multi_code = self.multi_code[:-1]
-                    elif hasattr(event, 'unicode') and event.unicode.isdigit() and len(self.multi_code) < 6: self.multi_code += event.unicode
+                    elif hasattr(event, 'unicode'):
+                        # Allow digits, dots for IP, and limit to 15 chars
+                        if (event.unicode.isdigit() or event.unicode == '.') and len(self.multi_code) < 15:
+                            self.multi_code += event.unicode
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    if pygame.Rect(WIDTH // 2 - 100, 290, 200, 50).collidepoint(event.pos) and len(self.multi_code) == 6:
+                    is_ip = '.' in self.multi_code
+                    is_valid_pin = len(self.multi_code) == 6 and not is_ip
+                    is_valid_ip = len(self.multi_code) >= 7 and is_ip # Minimal IP like 1.1.1.1
+                    
+                    if pygame.Rect(WIDTH // 2 - 100, 290, 200, 50).collidepoint(event.pos) and (is_valid_pin or is_valid_ip):
                         self.game_state = 'multi_searching'; self.multi_status = "Recherche..."; self.connect_to_server()
                     elif pygame.Rect(WIDTH // 2 - 100, 360, 200, 50).collidepoint(event.pos): self.game_state = 'multi_mode_select'
 
