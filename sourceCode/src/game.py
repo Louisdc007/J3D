@@ -727,6 +727,12 @@ class Game:
                 e.get_damage(self.player.rect.center, self.player.attack_damage)
 
         for enemy in self.attackable_sprites:
+            # Use hitbox-to-hitbox distance for precise range regardless of sprite scale
+            enemy_dist = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center)
+            in_attack_range = enemy_dist < 55
+
+            # Only the HOST runs enemy AI (pathfinding, movement, collisions)
+            # The non-host receives positions from the server — no need to compute them
             if self.player_id == self.host_id: 
                 target = self.player
                 min_dist = pygame.math.Vector2(self.player.rect.center).distance_to(enemy.rect.center)
@@ -736,14 +742,7 @@ class Game:
                         if dist < min_dist:
                             min_dist = dist
                             target = p
-            else:
-                target = self.player
-
-            # Use hitbox-to-hitbox distance for precise range regardless of sprite scale
-            enemy_dist = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center)
-            in_attack_range = enemy_dist < 55
-
-            enemy.enemy_update(target, is_attacking=in_attack_range)
+                enemy.enemy_update(target, is_attacking=in_attack_range)
 
             if in_attack_range:
                 self.player.get_damage(enemy.damage, enemy.hitbox.center)

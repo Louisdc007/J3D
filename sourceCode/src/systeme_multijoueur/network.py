@@ -43,7 +43,7 @@ class Network:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.settimeout(0.5)
+            sock.settimeout(1.0)
             
             msg = f"J3D_DISCOVER:{pin}" if pin else "J3D_DISCOVER"
             encoded = msg.encode()
@@ -51,8 +51,8 @@ class Network:
             
             print(f"[DEBUG-CLIENT] IPs cibles pour le broadcast: {targets}")
 
-            for attempt in range(5):
-                print(f"[DEBUG-CLIENT] Tentative {attempt + 1}/5")
+            for attempt in range(10):
+                print(f"[DEBUG-CLIENT] Tentative {attempt + 1}/10")
                 for target in targets:
                     try:
                         # Changement du port de découverte ici
@@ -62,7 +62,7 @@ class Network:
                         print(f"[DEBUG-CLIENT] Echec de l'envoi a {target} : {e}")
                 
                 start = time.time()
-                while time.time() - start < 0.5:
+                while time.time() - start < 1.0:
                     try:
                         data, addr = sock.recvfrom(1024)
                         resp = data.decode().strip()

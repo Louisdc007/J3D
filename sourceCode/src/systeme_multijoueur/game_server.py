@@ -87,13 +87,28 @@ class GameServer:
         eid = 0
         for room in dg.rooms[1:]:
             for _ in range(random.randint(3, 5 + self.current_level * 2)):
-                offset_x = random.randint(-20, 20)
-                offset_y = random.randint(-20, 20)
-                ex = room.centerx * TILE_SIZE + offset_x
-                ey = room.centery * TILE_SIZE + offset_y
-                tier = random.choice(available_monsters)
-                self.server_enemies[eid] = [ex, ey, tier]
-                eid += 1
+                # Try to find a valid floor position within the room
+                placed = False
+                for _attempt in range(10):
+                    # Pick a random position inside the room bounds
+                    rx = random.randint(room.left + 1, room.right - 2)
+                    ry = random.randint(room.top + 1, room.bottom - 2)
+                    # Validate it's a floor tile
+                    if 0 <= ry < len(map_data) and 0 <= rx < len(map_data[0]) and map_data[ry][rx] == ' ':
+                        ex = rx * TILE_SIZE
+                        ey = ry * TILE_SIZE
+                        tier = random.choice(available_monsters)
+                        self.server_enemies[eid] = [ex, ey, tier]
+                        eid += 1
+                        placed = True
+                        break
+                if not placed:
+                    # Fallback: use room center (guaranteed to be floor)
+                    ex = room.centerx * TILE_SIZE
+                    ey = room.centery * TILE_SIZE
+                    tier = random.choice(available_monsters)
+                    self.server_enemies[eid] = [ex, ey, tier]
+                    eid += 1
                 
         for p in self.players.values():
             p.x = self.spawn_x
