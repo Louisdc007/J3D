@@ -28,7 +28,7 @@ class Enemy(pygame.sprite.Sprite):
         info = MONSTER_DATA[tier]
         self.tier = tier
         self.health = info['health']
-        self.speed = info['speed']
+        self.speed = info['speed'] * 60 # Convert to pixels per second
         self.damage = info['damage']
         self.notice_radius = info['notice_radius']
         self.loot_table = info['loot']
@@ -175,7 +175,7 @@ class Enemy(pygame.sprite.Sprite):
             my_pos = pygame.math.Vector2(self.hitbox.center)
             other_pos = pygame.math.Vector2(player_center)
             diff = my_pos - other_pos
-            self.knockback = diff.normalize() * 15 if diff.magnitude() != 0 else pygame.math.Vector2(0, 0)
+            self.knockback = diff.normalize() * 900 if diff.magnitude() != 0 else pygame.math.Vector2(0, 0) # Pixels/sec (auparavant 15px/f)
 
     # ------------------------------------------------------------------
     # Movement
@@ -203,7 +203,7 @@ class Enemy(pygame.sprite.Sprite):
                     if speed > 0: self.hitbox.bottom = sprite.rect.top; self.pos.y = self.hitbox.y
                     if speed < 0: self.hitbox.top = sprite.rect.bottom; self.pos.y = self.hitbox.y
 
-    def enemy_update(self, player, is_attacking: bool = False):
+    def enemy_update(self, player, dt, is_attacking: bool = False):
         enemy_vect = pygame.math.Vector2(self.hitbox.center)
         player_vect = pygame.math.Vector2(player.rect.center)
         diff = player_vect - enemy_vect
@@ -218,23 +218,24 @@ class Enemy(pygame.sprite.Sprite):
             self.patrol()
 
         self._update_status(chasing, is_attacking)
-        self.move(self.speed)
+        self.move(self.speed, dt)
 
-    def reduce_knockback(self):
-        self.knockback *= 0.8
-        if self.knockback.magnitude() < 0.5:
+    def reduce_knockback(self, dt):
+        # Équivalent à *= 0.8 par frame à 60 FPS
+        self.knockback *= (0.8 ** (dt * 60))
+        if self.knockback.magnitude() < 10:
             self.knockback = pygame.math.Vector2(0, 0)
 
-    def move(self, speed):
+    def move(self, speed, dt):
         if self.direction.magnitude() != 0:
             self.direction = self.direction.normalize()
 
-        dx = self.direction.x * speed + self.knockback.x
+        dx = (self.direction.x * speed + self.knockback.x) * dt
         self.pos.x += dx
         self.hitbox.x = int(self.pos.x)
         self.collision('horizontal', dx)
 
-        dy = self.direction.y * speed + self.knockback.y
+        dy = (self.direction.y * speed + self.knockback.y) * dt
         self.pos.y += dy
         self.hitbox.y = int(self.pos.y)
         self.collision('vertical', dy)
@@ -245,8 +246,8 @@ class Enemy(pygame.sprite.Sprite):
     # ------------------------------------------------------------------
     # Main update (called each frame by sprite group)
     # ------------------------------------------------------------------
-    def update(self):
-        self.reduce_knockback()
+    def update(self, dt=0.016):
+        self.reduce_knockback(dt)
         if not self.vulnerable:
             if pygame.time.get_ticks() - self.hit_time >= 400:
                 self._is_flashing = False

@@ -17,3 +17,6 @@ class Weapon(pygame.sprite.Sprite):
 
         self.rect = self.image.get_rect()
         self.rect.center = player.rect.center + offset
+
+    def update(self, dt=0.016):
+        pass

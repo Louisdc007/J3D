@@ -34,7 +34,7 @@ class Player(pygame.sprite.Sprite):
         self.hitbox.midbottom = self.rect.midbottom
         self.pos = pygame.math.Vector2(self.hitbox.topleft)
         self.direction = pygame.math.Vector2(0, 0)
-        self.speed = 5
+        self.speed = 300 # Pixels per second (auparavant 5 pixels/frame à 60fps)
         self.obstacle_sprites = obstacles
         # Attack setup
         self.attacking = False
@@ -42,7 +42,7 @@ class Player(pygame.sprite.Sprite):
         self.attack_time = 0
         self.current_weapon = None
         self.is_dashing = False
-        self.dash_speed = 15
+        self.dash_speed = 900 # Pixels per second (auparavant 15 px/f)
         self.dash_duration = 200
         self.dash_start_time = 0
         self.can_dash = True
@@ -257,16 +257,17 @@ class Player(pygame.sprite.Sprite):
                         self.hitbox.top = sprite.rect.bottom
                         self.pos.y = self.hitbox.y
 
-    def move(self, speed):
+    def move(self, speed, dt):
         if self.direction.magnitude() != 0:
             self.direction = self.direction.normalize()
 
-        dx = self.direction.x * speed + self.knockback.x
+        # Scale speed by delta time
+        dx = (self.direction.x * speed + self.knockback.x) * dt
         self.pos.x += dx
         self.hitbox.x = int(self.pos.x)
         self.collision('horizontal', dx)
 
-        dy = self.direction.y * speed + self.knockback.y
+        dy = (self.direction.y * speed + self.knockback.y) * dt
         self.pos.y += dy
         self.hitbox.y = int(self.pos.y)
         self.collision('vertical', dy)
@@ -289,23 +290,24 @@ class Player(pygame.sprite.Sprite):
                 direction = diff.normalize()
             else:
                 direction = pygame.math.Vector2(1, 0)
-            self.knockback = direction * 20
+            self.knockback = direction * 1200 # Pixels per second (auparavant 20px/f)
 
-    def reduce_knockback(self):
+    def reduce_knockback(self, dt):
         if self.knockback.magnitude() != 0:
-            self.knockback *= 0.8
+            # Équivalent à *= 0.8 par frame à 60 FPS
+            self.knockback *= (0.8 ** (dt * 60))
 
-            if self.knockback.magnitude() < 0.5:
+            if self.knockback.magnitude() < 10:
                 self.knockback = pygame.math.Vector2(0, 0)
 
-    def update(self):
+    def update(self, dt=0.016):
         # Remote clones only animate — movement/input handled by network sync
         if self.is_remote:
             self.animate()
             self.rect.midbottom = self.hitbox.midbottom
             return
         
-        self.reduce_knockback()
+        self.reduce_knockback(dt)
         self.input()
         self.cooldowns()
 
@@ -328,9 +330,9 @@ class Player(pygame.sprite.Sprite):
             self.direction.x = 0
             self.direction.y = 0
         elif self.is_dashing:
-            self.move(self.dash_speed)
+            self.move(self.dash_speed, dt)
         else:
-            self.move(self.speed)
+            self.move(self.speed, dt)
             
         self.get_status()
         self.animate()

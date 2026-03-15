@@ -18,3 +18,6 @@ class Item(pygame.sprite.Sprite):
 
         self.rect = self.image.get_rect(topleft=pos)
         self.hitbox = self.rect.inflate(-10, -10)
+
+    def update(self, dt=0.016):
+        pass

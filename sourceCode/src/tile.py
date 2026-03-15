@@ -13,6 +13,9 @@ class Tile(pygame.sprite.Sprite):
         self.image = random.choice(Tile._wall_images) if Tile._wall_images else pygame.surface.Surface((TILE_SIZE, TILE_SIZE))
         self.rect = self.image.get_rect(topleft=pos)
 
+    def update(self, dt=0.016):
+        pass
+
     @classmethod
     def _load_wall_images(cls):
         wall_dir = os.path.join(os.path.dirname(__file__), 'assets', 'wall')
@@ -63,6 +66,9 @@ class Floor(pygame.sprite.Sprite):
         
         self.rect = self.image.get_rect(topleft=pos)
 
+    def update(self, dt=0.016):
+        pass
+
     @classmethod
     def load_images(cls):
         cls._images_loaded = True
@@ -112,3 +118,6 @@ class DungeonEntrance(pygame.sprite.Sprite):
         self.image = pygame.surface.Surface((TILE_SIZE, TILE_SIZE))
         self.image.fill((0, 255, 0))  # Vert vif pour l'entrée
         self.rect = self.image.get_rect(topleft = pos)
+
+    def update(self, dt=0.016):
+        pass

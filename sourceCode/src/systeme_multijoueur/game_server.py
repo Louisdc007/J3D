@@ -39,7 +39,7 @@ class SharedPlayer:
 
 class GameServer:
     def __init__(self, port=55555, max_retries=10):
-        self.pin_code = ''.join([str(random.randint(0, 9)) for _ in range(6)])
+        self.pin_code = "AUTO"
         self.port = port
         self.max_retries = max_retries
         self.server_socket = None

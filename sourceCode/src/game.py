@@ -142,6 +142,7 @@ class Game:
                     self.player = Player((0, 0), [self.visible_sprites], self.obstacle_sprites)
                     self.game_state = 'multi_lobby'
                     self.multi_state = 'lobby'
+                    self.multi_code = "AUTO"
                     self.pending_multi_action = None
                     self.start_network_thread()
             else:
@@ -175,14 +176,14 @@ class Game:
                 self.connect_direct(code)
                 return
             
-            discovered = Network.discover(pin=code)
+            discovered = Network.discover(pin=code if code != "AUTO" else None)
             if discovered:
                 host, port = discovered
                 if not self._finalize_connection(host, port):
-                    self.multi_status = "Serveur non prêt"
+                    self.multi_status = "Serveur occupé"
                     self.game_state = 'multi_code_input'
             else:
-                self.multi_status = "Serveur non trouvé"
+                self.multi_status = "Aucun serveur trouvé"
                 self.game_state = 'multi_code_input'
         except Exception as e:
             self.multi_status = f"Erreur: {str(e)}"
@@ -343,9 +344,11 @@ class Game:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     is_ip = '.' in self.multi_code
                     is_valid_pin = len(self.multi_code) == 6 and not is_ip
-                    is_valid_ip = len(self.multi_code) >= 7 and is_ip # Minimal IP like 1.1.1.1
+                    is_valid_ip = len(self.multi_code) >= 7 and is_ip 
+                    is_auto = self.multi_code == "" or self.multi_code == "AUTO"
                     
-                    if pygame.Rect(WIDTH // 2 - 100, 290, 200, 50).collidepoint(event.pos) and (is_valid_pin or is_valid_ip):
+                    if pygame.Rect(WIDTH // 2 - 100, 290, 200, 50).collidepoint(event.pos):
+                        if is_auto: self.multi_code = "AUTO"
                         self.game_state = 'multi_searching'; self.multi_status = "Recherche..."; self.connect_to_server()
                     elif pygame.Rect(WIDTH // 2 - 100, 360, 200, 50).collidepoint(event.pos): self.game_state = 'multi_mode_select'
 
@@ -487,6 +490,9 @@ class Game:
                 return 
 
     def update(self):
+        dt = self.clock.get_time() / 1000.0
+        if dt > 0.1: dt = 0.016 # Prevent huge jumps if window is moved
+        
         if self.game_state in ['menu', 'options', 'multi_mode_select', 'multi_code_input', 'multi_searching']: return
         
         if self.game_state == 'intro':
@@ -495,8 +501,8 @@ class Game:
             
         if self.paused: return
 
-        if self.is_multiplayer: self.update_multi()
-        else: self.update_solo()
+        if self.is_multiplayer: self.update_multi(dt)
+        else: self.update_solo(dt)
 
     def _handle_game_over_event(self, event):
         """Returns True if game over button was clicked."""
@@ -533,7 +539,7 @@ class Game:
             label = font_small.render('Retour au menu', True, (255, 255, 255))
             self.screen.blit(label, label.get_rect(center=btn.center))
 
-    def update_solo(self):
+    def update_solo(self, dt):
         if self.game_state == 'loading':
             self.build_map_solo(); self.game_state = 'dungeon'; return
 
@@ -578,7 +584,7 @@ class Game:
         if self.transition_alpha >= self.transition_duration: self.transition_active = False; self.transition_alpha = 0
         
         if self.game_state == 'dungeon' and not self.transition_active:
-            self.visible_sprites.update()
+            self.visible_sprites.update(dt)
             
             if self.player.current_weapon:
                 # Use a custom collision check against the enemy's hitbox instead of its massive visual rect
@@ -594,7 +600,7 @@ class Game:
                 enemy_dist = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center)
                 in_attack_range = enemy_dist < 55
                 
-                enemy.enemy_update(self.player, is_attacking=in_attack_range)
+                enemy.enemy_update(self.player, dt, is_attacking=in_attack_range)
                 
                 if in_attack_range:
                     self.player.get_damage(enemy.damage, enemy.hitbox.center)
@@ -629,7 +635,7 @@ class Game:
                 btn_w, btn_h = 260, 56
                 self._go_btn = pygame.Rect((WIDTH - btn_w) // 2, HEIGHT // 2 + 60, btn_w, btn_h)
 
-    def update_multi(self):
+    def update_multi(self, dt):
         if not self.network: return
         
         if self.transition_active:
@@ -705,13 +711,13 @@ class Game:
                         
             if self.multi_state == 'playing':
                 self.game_time += self.clock.get_time()
-                self.sync_multi_entities(server_data)
+                self.sync_multi_entities(server_data, dt)
                 
                 if self.game_time >= self.full_day_duration:
                     if self.is_player_at_entrance(): self.multi_state = 'upgrade'
                     else: self.multi_state = 'rescue'
 
-    def sync_multi_entities(self, server_data):
+    def sync_multi_entities(self, server_data, dt):
         players_data = server_data.get('players', {})
         active_pids = list(players_data.keys())
         if active_pids: self.host_id = min(active_pids)
@@ -754,7 +760,7 @@ class Game:
                     enemy.pos.x = enemy.hitbox.x; enemy.pos.y = enemy.hitbox.y
                     enemy.rect.midbottom = enemy.hitbox.midbottom
 
-        self.visible_sprites.update()
+        self.visible_sprites.update(dt)
 
         if self.player.current_weapon:
             hitted_enemies = [
@@ -780,7 +786,7 @@ class Game:
                         if dist < min_dist:
                             min_dist = dist
                             target = p
-                enemy.enemy_update(target, is_attacking=in_attack_range)
+                enemy.enemy_update(target, dt, is_attacking=in_attack_range)
 
             if in_attack_range:
                 self.player.get_damage(enemy.damage, enemy.hitbox.center)
@@ -1081,8 +1087,10 @@ class Game:
         self.screen.fill((30, 30, 40))
         title = self.title_font.render("Rejoindre", True, (255, 255, 255))
         self.screen.blit(title, title.get_rect(center=(WIDTH//2, 80)))
-        hint = pygame.font.Font(None, 24).render("Entrez le PIN (6 chiffres) ou l'IP du serveur", True, (180, 180, 180))
+        hint = pygame.font.Font(None, 24).render("PIN (AUTO si vide) ou IP du serveur", True, (180, 180, 180))
         self.screen.blit(hint, hint.get_rect(center=(WIDTH//2, 140)))
+        win_hint = pygame.font.Font(None, 18).render("Windows: Autorisez l'app dans le pare-feu si Hôte", True, (150, 150, 255))
+        self.screen.blit(win_hint, win_hint.get_rect(center=(WIDTH//2, 165)))
         code_rect = pygame.Rect(WIDTH//2 - 150, 200, 300, 60)
         pygame.draw.rect(self.screen, (100, 100, 100), code_rect)
         pygame.draw.rect(self.screen, (255, 255, 255), code_rect, 2)

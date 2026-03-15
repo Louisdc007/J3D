@@ -1,13 +1,13 @@
 {
     "player": {
-        "level": 5,
-        "current_health": 75,
-        "max_health": 75,
-        "xp": 398,
-        "xp_to_next": 438,
+        "level": 6,
+        "current_health": 18,
+        "max_health": 80,
+        "xp": 81,
+        "xp_to_next": 657,
         "gold": 0,
-        "iron": 0,
-        "attack_damage": 29
+        "iron": 25,
+        "attack_damage": 30
     },
     "hub": {
         "buildings": [
@@ -182,7 +182,7 @@
                 "y": 320
             }
         ],
-        "banked_iron": 298,
-        "banked_gold": 342
+        "banked_iron": 293,
+        "banked_gold": 336
     }
 }
