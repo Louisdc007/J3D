@@ -151,26 +151,55 @@ class Game:
             self.multi_status = f"Erreur: {str(e)}"
             self.game_state = 'multi_mode_select'
 
+    def _finalize_connection(self, host, port):
+        """Shared logic to finish connecting once we have host:port."""
+        self.network = Network(server=host, port=port)
+        if self.network.p:
+            self.player_id = self.network.p.get('player_id', 1)
+            self.player.kill()
+            self.player = Player((0, 0), [self.visible_sprites], self.obstacle_sprites)
+            self.is_multiplayer = True
+            self.game_state = 'multi_lobby'
+            self.multi_state = 'lobby'
+            self.pending_multi_action = None
+            self.start_network_thread()
+            return True
+        return False
+
     def connect_to_server(self):
         try:
-            discovered = Network.discover(pin=self.multi_code)
+            # Detect if input is an IP address or a PIN code
+            code = self.multi_code.strip()
+            if '.' in code:
+                # Direct IP connection — bypass broadcast entirely
+                self.connect_direct(code)
+                return
+            
+            discovered = Network.discover(pin=code)
             if discovered:
                 host, port = discovered
-                self.network = Network(server=host, port=port)
-                if self.network.p:
-                    self.player_id = self.network.p.get('player_id', 1)
-                    self.player.kill()
-                    self.player = Player((0, 0), [self.visible_sprites], self.obstacle_sprites)
-                    self.is_multiplayer = True
-                    self.game_state = 'multi_lobby'
-                    self.multi_state = 'lobby'
-                    self.pending_multi_action = None
-                    self.start_network_thread()
-                else:
+                if not self._finalize_connection(host, port):
                     self.multi_status = "Serveur non prêt"
                     self.game_state = 'multi_code_input'
             else:
                 self.multi_status = "Serveur non trouvé"
+                self.game_state = 'multi_code_input'
+        except Exception as e:
+            self.multi_status = f"Erreur: {str(e)}"
+            self.game_state = 'multi_code_input'
+
+    def connect_direct(self, ip_address):
+        """Connect directly to a server IP, bypassing UDP broadcast."""
+        try:
+            port = 55555
+            print(f"[DEBUG-CLIENT] Connexion directe a {ip_address}:{port}")
+            if not self._finalize_connection(ip_address, port):
+                # Try a few ports in case the server had to use an alternate
+                for offset in range(1, 5):
+                    print(f"[DEBUG-CLIENT] Essai port {port + offset}...")
+                    if self._finalize_connection(ip_address, port + offset):
+                        return
+                self.multi_status = f"Connexion échouée à {ip_address}"
                 self.game_state = 'multi_code_input'
         except Exception as e:
             self.multi_status = f"Erreur: {str(e)}"
