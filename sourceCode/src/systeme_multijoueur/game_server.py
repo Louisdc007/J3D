@@ -39,7 +39,6 @@ class SharedPlayer:
 
 class GameServer:
     def __init__(self, port=55555, max_retries=10):
-        self.pin_code = "AUTO"
         self.port = port
         self.max_retries = max_retries
         self.server_socket = None
@@ -148,13 +147,13 @@ class GameServer:
             broadcaster = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             broadcaster.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
             
-            print(f"[SERVER] Demarrage du broadcast discovery. PIN: {self.pin_code}")
+            print(f"[SERVER] Demarrage du broadcast discovery sur le port {self.port}")
             
             from network import Network
             
             while self.running:
                 try:
-                    msg = f"J3D_ANNOUNCE:{self.pin_code}:{self.port}"
+                    msg = f"J3D_ANNOUNCE:{self.port}"
                     encoded = msg.encode()
                     
                     targets = Network.get_broadcasts()

@@ -169,22 +169,25 @@ class Game:
 
     def connect_to_server(self):
         try:
-            # Detect if input is an IP address or a PIN code
             code = self.multi_code.strip()
-            if '.' in code:
-                # Direct IP connection — bypass broadcast entirely
+            if code:
+                # Direct IP connection
                 self.connect_direct(code)
-                return
-            
-            discovered = Network.discover(pin=code if code != "AUTO" else None)
-            if discovered:
-                host, port = discovered
-                if not self._finalize_connection(host, port):
-                    self.multi_status = "Serveur occupé"
-                    self.game_state = 'multi_code_input'
             else:
-                self.multi_status = "Aucun serveur trouvé"
-                self.game_state = 'multi_code_input'
+                # Auto-discovery
+                discovered = Network.discover()
+                if discovered:
+                    host, port = discovered
+                    self.multi_code = host # Auto-fill UI
+                    if not self._finalize_connection(host, port):
+                        self.multi_status = "Serveur occupé"
+                        self.game_state = 'multi_code_input'
+                else:
+                    self.multi_status = "Aucun serveur J3D trouvé"
+                    self.game_state = 'multi_code_input'
+        except Exception as e:
+            self.multi_status = f"Erreur: {str(e)}"
+            self.game_state = 'multi_code_input'
         except Exception as e:
             self.multi_status = f"Erreur: {str(e)}"
             self.game_state = 'multi_code_input'
@@ -343,14 +346,17 @@ class Game:
                             self.multi_code += event.unicode
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     is_ip = '.' in self.multi_code
-                    is_valid_pin = len(self.multi_code) == 6 and not is_ip
-                    is_valid_ip = len(self.multi_code) >= 7 and is_ip 
                     is_auto = self.multi_code == "" or self.multi_code == "AUTO"
                     
+                    # Search button
                     if pygame.Rect(WIDTH // 2 - 100, 290, 200, 50).collidepoint(event.pos):
-                        if is_auto: self.multi_code = "AUTO"
                         self.game_state = 'multi_searching'; self.multi_status = "Recherche..."; self.connect_to_server()
+                    # Back button
                     elif pygame.Rect(WIDTH // 2 - 100, 360, 200, 50).collidepoint(event.pos): self.game_state = 'multi_mode_select'
+                    # Firewall Help button
+                    elif pygame.Rect(WIDTH // 2 - 150, 430, 300, 40).collidepoint(event.pos):
+                        import webbrowser
+                        webbrowser.open("https://github.com/Louisdc007/J3D/wiki/Firewall-Help") # Placeholder or internal text
 
             elif self.game_state == 'multi_lobby':
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -1085,33 +1091,40 @@ class Game:
 
     def draw_multi_code_input(self):
         self.screen.fill((30, 30, 40))
-        title = self.title_font.render("Rejoindre", True, (255, 255, 255))
+        title = self.title_font.render("Rejoindre par IP", True, (255, 255, 255))
         self.screen.blit(title, title.get_rect(center=(WIDTH//2, 80)))
-        hint = pygame.font.Font(None, 24).render("PIN (AUTO si vide) ou IP du serveur", True, (180, 180, 180))
+        hint_text = "Entrez l'IP du serveur ou vide pour chercher"
+        hint = pygame.font.Font(None, 24).render(hint_text, True, (180, 180, 180))
         self.screen.blit(hint, hint.get_rect(center=(WIDTH//2, 140)))
-        win_hint = pygame.font.Font(None, 18).render("Windows: Autorisez l'app dans le pare-feu si Hôte", True, (150, 150, 255))
-        self.screen.blit(win_hint, win_hint.get_rect(center=(WIDTH//2, 165)))
-        code_rect = pygame.Rect(WIDTH//2 - 150, 200, 300, 60)
+        
+        info = pygame.font.Font(None, 18).render("Windows: Autorisez 'Python/J3D' dans le Pare-feu", True, (255, 120, 120))
+        self.screen.blit(info, info.get_rect(center=(WIDTH//2, 165)))
+        
+        code_rect = pygame.Rect(WIDTH//2 - 200, 200, 400, 60)
         pygame.draw.rect(self.screen, (100, 100, 100), code_rect)
         pygame.draw.rect(self.screen, (255, 255, 255), code_rect, 2)
-        # Support both PIN (fixed length) and IP (variable length)
-        display_text = self.multi_code
-        if len(self.multi_code) <= 6 and '.' not in self.multi_code:
-             display_text += "_" * (6 - len(self.multi_code))
-             
-        code_display = self.menu_font.render(display_text, True, (0, 0, 0))
+        
+        display_text = self.multi_code if self.multi_code else "Recherche auto..."
+        code_display = self.menu_font.render(display_text, True, (100, 100, 100) if not self.multi_code else (255, 255, 255))
         self.screen.blit(code_display, (code_rect.x + 10, code_rect.y + 10))
+        
         search_btn = pygame.Rect(WIDTH//2 - 100, 290, 200, 50)
         back_btn = pygame.Rect(WIDTH//2 - 100, 360, 200, 50)
+        help_btn = pygame.Rect(WIDTH//2 - 150, 430, 300, 40)
+        
         mouse_pos = pygame.mouse.get_pos()
-        for rect, text in [(search_btn, "RECHERCHER"), (back_btn, "RETOUR")]:
+        for rect, text, is_enabled in [
+            (search_btn, "RECHERCHER", True), 
+            (back_btn, "RETOUR", True),
+            (help_btn, "AIDE PARE-FEU", True)
+        ]:
             is_hovered = rect.collidepoint(mouse_pos)
-            is_enabled = text == "RETOUR" or len(self.multi_code) >= 6 or '.' in self.multi_code
-            color = (100, 150, 100) if is_hovered and is_enabled else (80, 80, 80)
-            pygame.draw.rect(self.screen, color, rect)
-            pygame.draw.rect(self.screen, (200, 200, 200), rect, 2)
-            txt = self.menu_font.render(text, True, (255, 255, 255))
-            self.screen.blit(txt, txt.get_rect(center=rect.center))
+            color = (100, 150, 100) if is_hovered else (80, 80, 80)
+            pygame.draw.rect(self.screen, color, rect, border_radius=8)
+            pygame.draw.rect(self.screen, (200, 200, 200), rect, 2, border_radius=8)
+            
+            btn_txt = pygame.font.Font(None, 28).render(text, True, (255, 255, 255))
+            self.screen.blit(btn_txt, btn_txt.get_rect(center=rect.center))
         if self.multi_status:
             status_txt = pygame.font.Font(None, 20).render(self.multi_status, True, (200, 100, 100))
             self.screen.blit(status_txt, status_txt.get_rect(center=(WIDTH//2, 430)))

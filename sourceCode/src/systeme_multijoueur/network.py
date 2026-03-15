@@ -67,8 +67,8 @@ class Network:
         return list(set(bcasts))
 
     @classmethod
-    def discover(cls, pin=None):
-        print(f"[DEBUG-CLIENT] Ecoute des annonces de serveur. Recherche: {'AUTO' if pin is None or pin == 'AUTO' else pin}")
+    def discover(cls):
+        print("[DEBUG-CLIENT] Recherche de serveurs sur le réseau local...")
         try:
             listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             if hasattr(socket, 'SO_REUSEPORT'):
@@ -88,15 +88,12 @@ class Network:
                     
                     if resp.startswith("J3D_ANNOUNCE:"):
                         parts = resp.split(':')
-                        if len(parts) >= 3:
-                            announce_pin = parts[1].strip()
-                            port = int(parts[2])
-                            is_auto = (pin is None or pin == "AUTO")
-                            if is_auto or announce_pin == str(pin).strip():
-                                host = addr[0]
-                                listener.close()
-                                print(f"[DEBUG-CLIENT] Serveur trouvé à {host}:{port}")
-                                return (host, port)
+                        if len(parts) >= 2:
+                            port = int(parts[1])
+                            host = addr[0]
+                            listener.close()
+                            print(f"[DEBUG-CLIENT] Serveur J3D trouvé à {host}:{port}")
+                            return (host, port)
                 except socket.timeout:
                     print(f"[DEBUG-CLIENT] Toujours en ecoute... ({(time.time()-start_time):.1f}s écoulées)")
                 except Exception as e:
