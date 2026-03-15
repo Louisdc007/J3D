@@ -895,6 +895,10 @@ class Game:
         code = pygame.font.Font(None, 60).render(f"Code : {self.multi_code}", True, (0, 255, 100))
         self.screen.blit(code, code.get_rect(center=(WIDTH//2, 180)))
         
+        primary_ip = Network.get_primary_ip()
+        ip_txt = pygame.font.Font(None, 30).render(f"IP Serveur : {primary_ip}", True, (100, 150, 255))
+        self.screen.blit(ip_txt, ip_txt.get_rect(center=(WIDTH//2, 230)))
+        
         players_count = self.multi_server_data_cache.get('total_players', 1) if self.multi_server_data_cache else 1
         ptext = pygame.font.Font(None, 40).render(f"Joueurs connectés : {players_count}", True, (200, 200, 200))
         self.screen.blit(ptext, ptext.get_rect(center=(WIDTH//2, 280)))
@@ -1070,12 +1074,16 @@ class Game:
         self.screen.fill((30, 30, 40))
         title = self.title_font.render("Rejoindre", True, (255, 255, 255))
         self.screen.blit(title, title.get_rect(center=(WIDTH//2, 80)))
-        hint = pygame.font.Font(None, 24).render("Entrez le code PIN (6 chiffres)", True, (180, 180, 180))
+        hint = pygame.font.Font(None, 24).render("Entrez le PIN (6 chiffres) ou l'IP du serveur", True, (180, 180, 180))
         self.screen.blit(hint, hint.get_rect(center=(WIDTH//2, 140)))
         code_rect = pygame.Rect(WIDTH//2 - 150, 200, 300, 60)
         pygame.draw.rect(self.screen, (100, 100, 100), code_rect)
         pygame.draw.rect(self.screen, (255, 255, 255), code_rect, 2)
-        display_text = self.multi_code + "_" * (6 - len(self.multi_code))
+        # Support both PIN (fixed length) and IP (variable length)
+        display_text = self.multi_code
+        if len(self.multi_code) <= 6 and '.' not in self.multi_code:
+             display_text += "_" * (6 - len(self.multi_code))
+             
         code_display = self.menu_font.render(display_text, True, (0, 0, 0))
         self.screen.blit(code_display, (code_rect.x + 10, code_rect.y + 10))
         search_btn = pygame.Rect(WIDTH//2 - 100, 290, 200, 50)
@@ -1083,7 +1091,7 @@ class Game:
         mouse_pos = pygame.mouse.get_pos()
         for rect, text in [(search_btn, "RECHERCHER"), (back_btn, "RETOUR")]:
             is_hovered = rect.collidepoint(mouse_pos)
-            is_enabled = text == "RETOUR" or len(self.multi_code) == 6
+            is_enabled = text == "RETOUR" or len(self.multi_code) >= 6 or '.' in self.multi_code
             color = (100, 150, 100) if is_hovered and is_enabled else (80, 80, 80)
             pygame.draw.rect(self.screen, color, rect)
             pygame.draw.rect(self.screen, (200, 200, 200), rect, 2)

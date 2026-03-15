@@ -9,13 +9,16 @@ class Network:
     @classmethod
     def get_local_ips(cls):
         ips = []
+        # Simple method: connection attempt
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(("10.255.255.255", 1))
+            s.connect(("8.8.8.8", 80))
             ips.append(s.getsockname()[0])
             s.close()
         except:
             pass
+
+        # Robust method: listing all interfaces
         try:
             host_name = socket.gethostname()
             _, _, ip_list = socket.gethostbyname_ex(host_name)
@@ -24,15 +27,36 @@ class Network:
                     ips.append(ip)
         except:
             pass
+
+        # Fallback for systems where hostname resolution fails
+        if not ips:
+            try:
+                # This is a bit specific but works on some Unix/Mac
+                ips.append(socket.gethostbyname(socket.gethostname()))
+            except:
+                pass
+
         if not ips:
             ips.append("127.0.0.1")
-        return ips
+        return list(set(ips))
+
+    @classmethod
+    def get_primary_ip(cls):
+        """Returns the IP address likely used for the local network."""
+        ips = cls.get_local_ips()
+        # Prefer non-loopback IPs
+        real_ips = [ip for ip in ips if not ip.startswith("127.")]
+        if real_ips:
+            # If multiple, prefer 192. or 10. patterns (common home wifi)
+            for ip in real_ips:
+                if ip.startswith("192.168.") or ip.startswith("10."):
+                    return ip
+            return real_ips[0]
+        return "127.0.0.1"
 
     @classmethod
     def get_broadcasts(cls):
-        if cls._cached_broadcasts is not None:
-            return cls._cached_broadcasts
-            
+        # We REMOVED caching to ensure fresh detection if network changes
         bcasts = ['<broadcast>', '255.255.255.255']
         for ip in cls.get_local_ips():
             if ip != "127.0.0.1":
@@ -40,8 +64,7 @@ class Network:
                 if len(parts) == 4:
                     bcasts.append(f"{parts[0]}.{parts[1]}.{parts[2]}.255")
         
-        cls._cached_broadcasts = list(set(bcasts))
-        return cls._cached_broadcasts
+        return list(set(bcasts))
 
     @classmethod
     def discover(cls, pin=None):
