@@ -5,6 +5,7 @@ import time
 import ipaddress
 
 class Network:
+    _cached_broadcasts = None
     @classmethod
     def get_local_ips(cls):
         ips = []
@@ -29,13 +30,18 @@ class Network:
 
     @classmethod
     def get_broadcasts(cls):
+        if cls._cached_broadcasts is not None:
+            return cls._cached_broadcasts
+            
         bcasts = ['<broadcast>', '255.255.255.255']
         for ip in cls.get_local_ips():
             if ip != "127.0.0.1":
                 parts = ip.split('.')
                 if len(parts) == 4:
                     bcasts.append(f"{parts[0]}.{parts[1]}.{parts[2]}.255")
-        return list(set(bcasts))
+        
+        cls._cached_broadcasts = list(set(bcasts))
+        return cls._cached_broadcasts
 
     @classmethod
     def discover(cls, pin=None):
