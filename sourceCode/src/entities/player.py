@@ -283,14 +283,13 @@ class Player(pygame.sprite.Sprite):
 
             my_pos = pygame.math.Vector2(self.rect.center)
             other_pos = pygame.math.Vector2(origin_center)
-
             diff = my_pos - other_pos
 
             if diff.magnitude() != 0:
                 direction = diff.normalize()
             else:
                 direction = pygame.math.Vector2(1, 0)
-            self.knockback = direction * 1200 # Pixels per second (auparavant 20px/f)
+            self.knockback = direction * 1400 # Augmenté pour le multi
 
     def reduce_knockback(self, dt):
         if self.knockback.magnitude() != 0:

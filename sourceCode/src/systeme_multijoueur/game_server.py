@@ -118,7 +118,15 @@ class GameServer:
             return False
         
         self.running = True
-        threading.Thread(target=self.discovery_broadcaster, daemon=True).start()
+        self.running = True
+        # Discovery broadcaster removed for reliability (IP entry only)
+        # threading.Thread(target=self.discovery_broadcaster, daemon=True).start()
+        from network import Network
+        print(f"=====================================")
+        print(f"[SERVER] Serveur J3D lancé !")
+        print(f"[SERVER] IP Locale : {Network.get_primary_ip()}")
+        print(f"[SERVER] Port : {self.port}")
+        print(f"=====================================")
         threading.Thread(target=self.accept_players, daemon=True).start()
         return True
 
@@ -140,41 +148,6 @@ class GameServer:
                 continue
         return False
 
-    def discovery_broadcaster(self):
-        """Actively broadcast server presence so clients bypass firewall blocks."""
-        broadcaster = None
-        try:
-            broadcaster = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            broadcaster.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            
-            print(f"[SERVER] Demarrage du broadcast discovery sur le port {self.port}")
-            
-            from network import Network
-            
-            while self.running:
-                try:
-                    msg = f"J3D_ANNOUNCE:{self.port}"
-                    encoded = msg.encode()
-                    
-                    targets = Network.get_broadcasts()
-                    if '255.255.255.255' not in targets: targets.append('255.255.255.255')
-                    if '<broadcast>' not in targets: targets.append('<broadcast>')
-                    
-                    for target in set(targets):
-                        try:
-                            broadcaster.sendto(encoded, (target, 55666))
-                        except Exception:
-                            pass
-                    time.sleep(1.0)
-                except Exception as e:
-                    print(f"[SERVER] Erreur broadcast : {e}")
-                    time.sleep(1.0)
-                    
-        except Exception as e:
-            print(f"[SERVER] Erreur critique broadcaster : {e}")
-        finally:
-            if broadcaster:
-                broadcaster.close()
 
     def accept_players(self):
         while self.running:

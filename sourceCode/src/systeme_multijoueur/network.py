@@ -56,55 +56,9 @@ class Network:
 
     @classmethod
     def get_broadcasts(cls):
-        # We REMOVED caching to ensure fresh detection if network changes
-        bcasts = ['<broadcast>', '255.255.255.255']
-        for ip in cls.get_local_ips():
-            if ip != "127.0.0.1":
-                parts = ip.split('.')
-                if len(parts) == 4:
-                    bcasts.append(f"{parts[0]}.{parts[1]}.{parts[2]}.255")
-        
-        return list(set(bcasts))
+        # Kept as utility for other potential uses, but simplified
+        return ['<broadcast>', '255.255.255.255']
 
-    @classmethod
-    def discover(cls):
-        print("[DEBUG-CLIENT] Recherche de serveurs sur le réseau local...")
-        try:
-            listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            if hasattr(socket, 'SO_REUSEPORT'):
-                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            else:
-                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            listener.bind(('', 55666))
-            listener.settimeout(1.0)
-
-            print("[DEBUG-CLIENT] En attente des broadcasts du serveur pendant 10s...")
-            start_time = time.time()
-            
-            while time.time() - start_time < 10.0:
-                try:
-                    data, addr = listener.recvfrom(1024)
-                    resp = data.decode().strip()
-                    
-                    if resp.startswith("J3D_ANNOUNCE:"):
-                        parts = resp.split(':')
-                        if len(parts) >= 2:
-                            port = int(parts[1])
-                            host = addr[0]
-                            listener.close()
-                            print(f"[DEBUG-CLIENT] Serveur J3D trouvé à {host}:{port}")
-                            return (host, port)
-                except socket.timeout:
-                    print(f"[DEBUG-CLIENT] Toujours en ecoute... ({(time.time()-start_time):.1f}s écoulées)")
-                except Exception as e:
-                    print(f"[DEBUG-CLIENT] Erreur pendant l'ecoute : {e}")
-            
-            print("[DEBUG-CLIENT] Aucun serveur annonce trouve apres toutes les tentatives.")
-            listener.close()
-            return None
-        except Exception as e:
-            print(f"[DEBUG-CLIENT] Erreur critique dans discover : {e}")
-            return None
 
     def __init__(self, server="127.0.0.1", port=55555):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

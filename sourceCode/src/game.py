@@ -170,43 +170,35 @@ class Game:
         return False
 
     def connect_to_server(self):
-        try:
-            ip_to_use = self.multi_ip.strip()
-            if ip_to_use:
-                # Direct IP connection
-                self.connect_direct(ip_to_use)
-            else:
-                # Auto-discovery
-                discovered = Network.discover()
-                if discovered:
-                    host, port = discovered
-                    self.multi_ip = host # Auto-fill UI
-                    if not self._finalize_connection(host, port):
-                        self.multi_status = "Serveur occupé"
-                        self.game_state = 'multi_ip_input'
-                else:
-                    self.multi_status = "Aucun serveur J3D trouvé"
-                    self.game_state = 'multi_ip_input'
-        except Exception as e:
-            self.multi_status = f"Erreur: {str(e)}"
-            self.game_state = 'multi_ip_input'
-        except Exception as e:
-            self.multi_status = f"Erreur: {str(e)}"
-            self.game_state = 'multi_ip_input'
+        """Launches a thread to connect to the IP in multi_ip."""
+        ip_to_use = self.multi_ip.strip()
+        if not ip_to_use:
+            self.multi_status = "Veuillez entrer une IP"
+            return
 
-    def connect_direct(self, ip_address):
-        """Connect directly to a server IP, bypassing UDP broadcast."""
+        self.game_state = 'multi_searching'
+        self.multi_status = f"Connexion à {ip_to_use}..."
+        threading.Thread(target=self._threaded_connect, args=(ip_to_use,), daemon=True).start()
+
+    def _threaded_connect(self, ip_address):
+        """Worker thread for network connection to avoid blocking UI."""
         try:
             port = 55555
-            print(f"[DEBUG-CLIENT] Connexion directe a {ip_address}:{port}")
-            if not self._finalize_connection(ip_address, port):
-                # Try a few ports in case the server had to use an alternate
-                for offset in range(1, 5):
-                    print(f"[DEBUG-CLIENT] Essai port {port + offset}...")
-                    if self._finalize_connection(ip_address, port + offset):
-                        return
-                self.multi_status = f"Connexion échouée à {ip_address}"
-                self.game_state = 'multi_ip_input'
+            print(f"[DEBUG-CLIENT] Tentative de connexion à {ip_address}:{port}")
+            
+            # This is the blocking call that used to cause the spinning wheel
+            if self._finalize_connection(ip_address, port):
+                print(f"[DEBUG-CLIENT] Connecté !")
+                return
+            
+            # Fallback ports
+            for offset in range(1, 5):
+                print(f"[DEBUG-CLIENT] Essai port {port + offset}...")
+                if self._finalize_connection(ip_address, port + offset):
+                    return
+            
+            self.multi_status = f"Échec de connexion"
+            self.game_state = 'multi_ip_input'
         except Exception as e:
             self.multi_status = f"Erreur: {str(e)}"
             self.game_state = 'multi_ip_input'
@@ -776,9 +768,8 @@ class Game:
         for enemy in self.attackable_sprites:
             # Use hitbox-to-hitbox distance for precise range regardless of sprite scale
             enemy_dist = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center)
-            in_attack_range = enemy_dist < 55
-
-            # Only the HOST runs enemy AI (pathfinding, movement, collisions)
+            in_attack_range = enemy_dist < 60 # Légèrement plus large en multi pour compenser le jitter
+            
             # The non-host receives positions from the server — no need to compute them
             if self.player_id == self.host_id: 
                 target = self.player
@@ -1088,10 +1079,10 @@ class Game:
 
     def draw_multi_ip_input(self):
         self.screen.fill((30, 30, 40))
-        title = self.title_font.render("Rejoindre par IP", True, (255, 255, 255))
+        title = self.title_font.render("Rejoindre le serveur", True, (255, 255, 255))
         self.screen.blit(title, title.get_rect(center=(WIDTH//2, 80)))
         
-        hint_text = "Entrez l'IP du serveur ou laissez vide pour chercher"
+        hint_text = "Entrez l'IP locale (affichée sur l'écran de l'Hôte)"
         hint = pygame.font.Font(None, 24).render(hint_text, True, (180, 180, 180))
         self.screen.blit(hint, hint.get_rect(center=(WIDTH//2, 140)))
         
@@ -1099,17 +1090,19 @@ class Game:
         pygame.draw.rect(self.screen, (100, 100, 100), code_rect, border_radius=5)
         pygame.draw.rect(self.screen, (255, 255, 255), code_rect, 2, border_radius=5)
         
-        display_text = self.multi_ip if self.multi_ip else "Recherche auto..."
-        color = (255, 255, 255) if self.multi_ip else (150, 150, 150)
-        code_display = self.menu_font.render(display_text, True, color)
+        display_text = self.multi_ip
+        if not display_text:
+             # Cursor for empty input
+             display_text = "_"
+        code_display = self.menu_font.render(display_text, True, (255, 255, 255))
         self.screen.blit(code_display, (code_rect.x + 15, code_rect.y + 10))
         
-        search_btn = pygame.Rect(WIDTH//2 - 100, 290, 200, 50)
+        connect_btn = pygame.Rect(WIDTH//2 - 100, 290, 200, 50)
         back_btn = pygame.Rect(WIDTH//2 - 100, 360, 200, 50)
         help_btn = pygame.Rect(WIDTH//2 - 150, 430, 300, 40)
         
         mouse_pos = pygame.mouse.get_pos()
-        for rect, text in [ (search_btn, "RECHERCHER"), (back_btn, "RETOUR"), (help_btn, "AIDE CONNEXION") ]:
+        for rect, text in [ (connect_btn, "REJOINDRE"), (back_btn, "RETOUR"), (help_btn, "AIDE CONNEXION") ]:
             is_hovered = rect.collidepoint(mouse_pos)
             color = (100, 150, 100) if is_hovered else (80, 80, 80)
             pygame.draw.rect(self.screen, color, rect, border_radius=8)
@@ -1120,8 +1113,20 @@ class Game:
             self.screen.blit(txt_surf, txt_surf.get_rect(center=rect.center))
 
         if self.multi_status:
-            status_txt = pygame.font.Font(None, 20).render(self.multi_status, True, (255, 100, 100))
-            self.screen.blit(status_txt, status_txt.get_rect(center=(WIDTH//2, 490)))
+            # Multi-line/larger status text
+            words = self.multi_status.split(' ')
+            line = ""
+            y_off = 490
+            for word in words:
+                if len(line + word) > 30:
+                    st = pygame.font.Font(None, 24).render(line, True, (255, 100, 100))
+                    self.screen.blit(st, st.get_rect(center=(WIDTH//2, y_off)))
+                    line = word + " "
+                    y_off += 25
+                else:
+                    line += word + " "
+            st = pygame.font.Font(None, 24).render(line, True, (255, 100, 100))
+            self.screen.blit(st, st.get_rect(center=(WIDTH//2, y_off)))
 
         if getattr(self, 'show_firewall_help', False):
             self.draw_firewall_help()
@@ -1158,7 +1163,7 @@ class Game:
 
     def draw_multi_searching(self):
         self.screen.fill((30, 30, 40))
-        title = self.title_font.render("Recherche...", True, (255, 255, 255))
+        title = self.title_font.render("Connexion en cours...", True, (255, 255, 255))
         self.screen.blit(title, title.get_rect(center=(WIDTH//2, HEIGHT//2)))
         pygame.display.flip()
 
