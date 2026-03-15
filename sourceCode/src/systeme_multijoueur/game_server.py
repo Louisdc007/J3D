@@ -127,10 +127,9 @@ class GameServer:
         for attempt in range(self.max_retries):
             try:
                 self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                if hasattr(socket, 'SO_REUSEPORT'):
-                    self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-                else:
-                    self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                # Remove SO_REUSEPORT so that we correctly get an OSError and try the next port 
+                # if a zombie server process is clinging to port 55555.
+                self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 self.server_socket.bind(('0.0.0.0', self.port + attempt))
                 self.server_socket.listen(4)
                 self.port = self.port + attempt

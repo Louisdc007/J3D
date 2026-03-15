@@ -128,7 +128,8 @@ class Network:
         try:
             self.client.connect(self.addr)
             return self.receive_data()
-        except:
+        except Exception as e:
+            print(f"[DEBUG-CLIENT] Erreur TCP connect a {self.addr}: {e}")
             return None
 
     def send(self, data):
