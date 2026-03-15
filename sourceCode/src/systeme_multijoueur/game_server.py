@@ -182,9 +182,10 @@ class GameServer:
             try:
                 if self.server_socket:
                     client_socket, addr = self.server_socket.accept()
+                    print(f"[SERVER] Connexion TCP acceptée de {addr}")
                     threading.Thread(target=self.handle_player, args=(client_socket, addr), daemon=True).start()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[SERVER] Erreur accept_players : {e}")
 
     def _send_msg(self, sock, data):
         """Send a length-prefixed pickled message."""
@@ -307,8 +308,8 @@ class GameServer:
                 
                 self._send_msg(client_socket, response)
                 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[SERVER] Erreur handle_player (ID:{player_id}, Addr:{addr}) : {e}")
         finally:
             with self.lock:
                 if player_id in self.players:
