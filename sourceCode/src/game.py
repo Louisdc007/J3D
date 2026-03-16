@@ -701,13 +701,21 @@ class Game:
         if self.player.health <= 0 and self.multi_state not in ['gameover', 'resting']:
             action = 'player_died'
             
+        # Determine if we need to request the map from the server
+        self._multi_map_needed = False
+        if self.game_state == 'dungeon' and self.is_multiplayer:
+            # If our local level is behind or map data is missing, we need it
+            if self.multi_level != getattr(self, '_last_built_level', -1):
+                self._multi_map_needed = True
+
         with self.network_lock:
             self.current_payload = {
                 'action': action, 
                 'pos': (self.player.hitbox.x, self.player.hitbox.y),
                 'status': self.player.status,
                 'facing_right': self.player.facing_right,
-                'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0
+                'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0,
+                'need_map': self._multi_map_needed
             }
         
         server_data = self.multi_server_data_cache
@@ -731,6 +739,7 @@ class Game:
                             self.multi_resting_for_level = -1
                             
                         self.build_map_multi(server_data)
+                        self._last_built_level = srv_level
                         self.game_state = 'dungeon'
                         self.multi_state = 'playing'
                         self.game_time = self.evening_duration
@@ -827,9 +836,10 @@ class Game:
                         else:
                             enemy._update_status(chasing=False)
                     else:
-                        # Knockback is active: apply the knockback movement locally.
-                        # speed=0 means only the knockback vector contributes (no AI movement).
-                        # direction must be zeroed so only knockback pushes the enemy.
+                        # Keep animation status updated (walking/chasing) even during knockback 
+                        # so the enemy doesn't look like a static sliding sprite.
+                        enemy._update_status(chasing=True)
+                        # Apply the knockback movement locally.
                         enemy.direction.x = 0
                         enemy.direction.y = 0
                         enemy.move(0, dt)
@@ -868,8 +878,8 @@ class Game:
                         diff = my_pos - other_pos
                         if diff.magnitude() != 0:
                             e.knockback = diff.normalize() * 900
-                        # Preserve the local knockback window for ~400ms so server pos overwrite is skipped
-                        e._knockback_until = pygame.time.get_ticks() + 400
+                        # Preserve the local knockback window for ~300ms (snappier than 400)
+                        e._knockback_until = pygame.time.get_ticks() + 300
                     # Report the hit to the server for authoritative HP deduction
                     if hasattr(e, 'multiplayer_id'):
                         with self.network_lock:

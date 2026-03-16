@@ -290,9 +290,9 @@ class GameServer:
 
                 with self.lock:
                     enemies_list = [{'id': eid, 'x': int(d[0]), 'y': int(d[1]), 'type': d[2]} for eid, d in self.server_enemies.items()]
-                    client_needs_map = payload.get('client_level', 0) != self.current_level
-                    obs_list = [{'x': o.rect.x, 'y': o.rect.y} for o in self.obstacles] if (self.game_state == 'PLAYING' and client_needs_map) else []
-                    floor_list = getattr(self, 'floor_tiles', []) if (self.game_state == 'PLAYING' and client_needs_map) else []
+                    client_needs_map = payload.get('client_level', 0) != self.current_level or payload.get('need_map', False)
+                    obs_list = [{'x': int(o.rect.x), 'y': int(o.rect.y)} for o in self.obstacles] if (self.game_state == 'PLAYING' and client_needs_map) else []
+                    floor_list = [{'x': int(f['x']), 'y': int(f['y'])} for f in getattr(self, 'floor_tiles', [])] if (self.game_state == 'PLAYING' and client_needs_map) else []
                     
                     # Serialize players as lightweight dicts to reduce pickle overhead
                     players_dict = {
