@@ -31,11 +31,12 @@ class SharedObstacle:
 
 class SharedPlayer:
     def __init__(self, x, y, pid):
-        self.x = x
-        self.y = y
+        self.x = int(x)
+        self.y = int(y)
         self.id = pid
         self.status = 'idle'
         self.facing_right = True
+        self.vulnerable = True
 
 class GameServer:
     def __init__(self, port=55555, max_retries=10):
@@ -237,15 +238,18 @@ class GameServer:
                         if self.players and player_id == min(self.players.keys()):
                             for e_id, epos in enemy_pos.items():
                                 if e_id in self.server_enemies:
-                                    # epos can now be (x, y, facing, status)
+                                    # epos can now be (x, y, facing, status, vulnerable)
                                     self.server_enemies[e_id][0] = epos[0] # x
                                     self.server_enemies[e_id][1] = epos[1] # y
                                     if len(epos) > 2:
-                                        if len(self.server_enemies[e_id]) < 5:
-                                            # Extend list if it only had [x, y, tier]
-                                            self.server_enemies[e_id].extend([True, 'idle'])
+                                        if len(self.server_enemies[e_id]) < 6:
+                                            # Ensure enough slots for [x, y, tier, facing, status, vulnerable]
+                                            while len(self.server_enemies[e_id]) < 6:
+                                                self.server_enemies[e_id].append(None)
                                         self.server_enemies[e_id][3] = epos[2] # facing
                                         self.server_enemies[e_id][4] = epos[3] # status
+                                        if len(epos) > 4:
+                                            self.server_enemies[e_id][5] = epos[4] # vulnerable
                             
                             # ITEMS: Host spawns new items
                             new_items = payload.get('new_items', [])
@@ -270,14 +274,13 @@ class GameServer:
                                 self.players[player_id].y = -9999
                         else:
                             self.resting_players.discard(player_id)
-                            if pos and player_id in self.players:
-                                self.players[player_id].x = pos[0]
-                                self.players[player_id].y = pos[1]
-                            p_status = payload.get('status', 'idle')
-                            p_facing = payload.get('facing_right', True)
                             if player_id in self.players:
-                                self.players[player_id].status = p_status
-                                self.players[player_id].facing_right = p_facing
+                                if pos:
+                                    self.players[player_id].x = int(pos[0])
+                                    self.players[player_id].y = int(pos[1])
+                                self.players[player_id].status = payload.get('status', 'idle')
+                                self.players[player_id].facing_right = payload.get('facing_right', True)
+                                self.players[player_id].vulnerable = payload.get('vulnerable', True)
                                 
                         # PICKUP: Any player can report picking up multiple items
                         picked_list = payload.get('pickup_items', [])
@@ -299,19 +302,24 @@ class GameServer:
                     enemies_list = []
                     for eid, d in self.server_enemies.items():
                         e_dict = {'id': eid, 'x': int(d[0]), 'y': int(d[1]), 'type': d[2]}
-                        if len(d) > 4:
-                            e_dict['f'] = d[3] # facing
-                            e_dict['s'] = d[4] # status
+                        if len(d) > 3 and d[3] is not None: e_dict['f'] = d[3] # facing
+                        if len(d) > 4 and d[4] is not None: e_dict['s'] = d[4] # status
+                        if len(d) > 5 and d[5] is not None: e_dict['v'] = d[5] # vulnerable
                         enemies_list.append(e_dict)
                     client_needs_map = payload.get('client_level', 0) != self.current_level or payload.get('need_map', False)
                     obs_list = [{'x': int(o.rect.x), 'y': int(o.rect.y)} for o in self.obstacles] if (self.game_state == 'PLAYING' and client_needs_map) else []
                     floor_list = [{'x': int(f['x']), 'y': int(f['y'])} for f in getattr(self, 'floor_tiles', [])] if (self.game_state == 'PLAYING' and client_needs_map) else []
                     
                     # Serialize players as lightweight dicts to reduce pickle overhead
-                    players_dict = {
-                        pid: {'x': p.x, 'y': p.y, 'status': p.status, 'facing_right': p.facing_right}
-                        for pid, p in self.players.items()
-                    }
+                    players_dict = {}
+                    for pid, p in self.players.items():
+                        players_dict[pid] = {
+                            'x': p.x, 
+                            'y': p.y, 
+                            'status': p.status, 
+                            'facing_right': p.facing_right,
+                            'vulnerable': getattr(p, 'vulnerable', True)
+                        }
                     
                     response = {
                         'state': self.game_state,
@@ -349,6 +357,4 @@ class GameServer:
             client_socket.close()
 
     def stop(self):
-        self.running = False
-        if self.server_socket:
             self.server_socket.close()

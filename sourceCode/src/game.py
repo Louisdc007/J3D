@@ -237,12 +237,13 @@ class Game:
                         if self.player_id == self.host_id:
                             for enemy in self.attackable_sprites:
                                 if hasattr(enemy, 'multiplayer_id'): 
-                                    # Send (x, y, facing_right, status) for full animation sync
+                                    # Send (x, y, facing_right, status, vulnerable) for full animation sync
                                     my_enemy_pos[enemy.multiplayer_id] = (
                                         enemy.hitbox.x, 
                                         enemy.hitbox.y, 
                                         enemy.facing_right, 
-                                        enemy.status
+                                        enemy.status,
+                                        enemy.vulnerable
                                     )
                         
                         payload['killed_enemies'] = list(self.killed_enemies_queue) 
@@ -717,9 +718,10 @@ class Game:
         with self.network_lock:
             self.current_payload = {
                 'action': action, 
-                'pos': (self.player.hitbox.x, self.player.hitbox.y),
+                'pos': (self.player.pos.x, self.player.pos.y), # Changed from hitbox to pos for smoother remote rendering
                 'status': self.player.status,
                 'facing_right': self.player.facing_right,
+                'vulnerable': self.player.vulnerable, # Added vulnerable state
                 'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0,
                 'need_map': self._multi_map_needed
             }
@@ -784,11 +786,12 @@ class Game:
         
         for pid, pdata in players_data.items():
             if pid != self.player_id:
-                # pdata is now a lightweight dict: {'x', 'y', 'status', 'facing_right'}
+                # pdata is now a lightweight dict: {'x', 'y', 'status', 'facing_right', 'vulnerable'}
                 px = pdata['x'] if isinstance(pdata, dict) else pdata.x
                 py = pdata['y'] if isinstance(pdata, dict) else pdata.y
                 pstatus = pdata.get('status', 'idle') if isinstance(pdata, dict) else getattr(pdata, 'status', 'idle')
                 pfacing = pdata.get('facing_right', True) if isinstance(pdata, dict) else getattr(pdata, 'facing_right', True)
+                pvulnerable = pdata.get('vulnerable', True) if isinstance(pdata, dict) else getattr(pdata, 'vulnerable', True) # Get vulnerable state
                 if pid not in self.other_players: 
                     clone = Player((px, py), [self.visible_sprites], self.obstacle_sprites)
                     clone.input = lambda: None
@@ -796,17 +799,18 @@ class Game:
                     self.other_players[pid] = clone
                 else:
                     clone = self.other_players[pid]
-                    # Apply to hitbox (authoritative physics position), then sync visual rect
-                    clone.hitbox.x = px
-                    clone.hitbox.y = py
-                    clone.pos.x = px
-                    clone.pos.y = py
+                    # Smooth interpolation (LERP) for remote players
+                    clone.pos.x += (px - clone.pos.x) * 0.5 # LERP factor 0.5
+                    clone.pos.y += (py - clone.pos.y) * 0.5 # LERP factor 0.5
+                    clone.hitbox.x = int(clone.pos.x); clone.hitbox.y = int(clone.pos.y)
                     clone.rect.midbottom = clone.hitbox.midbottom
                     # Sync animation state
                     if clone.status != pstatus:
                         clone.status = pstatus
                         clone.frame_index = 0
                     clone.facing_right = pfacing
+                    clone.vulnerable = pvulnerable # Apply vulnerable state
+                    clone._is_flashing = not clone.vulnerable # Force flickering state to match remote owner
         
         for pid in list(self.other_players.keys()):
             if pid not in active_pids: self.other_players[pid].kill(); del self.other_players[pid]
@@ -824,25 +828,26 @@ class Game:
                     knockback_active = now < getattr(enemy, '_knockback_until', 0)
                     
                     if not knockback_active:
-                        # Smooth LERP synchronization to avoid hard snaps/teleports
-                        #factor = 0.3  # Sync speed
+                        # Smooth LERP synchronization (0.4 factor) to absorb micro-jitter
                         enemy.pos.x += (srv_enemies[eid]['x'] - enemy.pos.x) * 0.4
                         enemy.pos.y += (srv_enemies[eid]['y'] - enemy.pos.y) * 0.4
                         enemy.hitbox.x = int(enemy.pos.x); enemy.hitbox.y = int(enemy.pos.y)
                         enemy.rect.midbottom = enemy.hitbox.midbottom
                         
-                        # Use authoritative animation status from server
+                        # Use authoritative animation status and invincibility from server
                         enemy.facing_right = srv_enemies[eid].get('f', True)
                         new_s = srv_enemies[eid].get('s', 'idle')
                         if enemy.status != new_s:
                             enemy.status = new_s
                             enemy.frame_index = 0
+                        enemy.vulnerable = srv_enemies[eid].get('v', True)
+                        enemy._is_flashing = not enemy.vulnerable
                     else:
-                        # While knockback is active, stay in sync with server animation status
+                        # While knockback is active, stay in sync with server metadata only
                         enemy.facing_right = srv_enemies[eid].get('f', True)
                         enemy.status = srv_enemies[eid].get('s', 'idle')
                         
-                        # Apply movement locally — use speed=0 to only apply knockback vector
+                        # Set speed to 0 so we only apply the knockback vector (matching Host logic)
                         enemy.direction.x = 0; enemy.direction.y = 0
                         enemy.move(0, dt)
             
@@ -874,8 +879,10 @@ class Game:
                         old_hp = e.health
                         e.get_damage(self.player.rect.center, self.player.attack_damage)
                         e.health = old_hp
-                        # Skip server overwrite for 400ms to match enemy's vulnerability window (physics sync)
-                        e._knockback_until = pygame.time.get_ticks() + 400
+                        # EXTENDED AUTHORITY WINDOW (1000ms):
+                        # We give the client 1 second of local authority to finish the recoil animation
+                        # and allow the server's authoritative position to catch up over the network.
+                        e._knockback_until = pygame.time.get_ticks() + 1000
                     
                     # Report hit to server
                     if hasattr(e, 'multiplayer_id'):
