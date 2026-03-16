@@ -237,7 +237,13 @@ class Game:
                         if self.player_id == self.host_id:
                             for enemy in self.attackable_sprites:
                                 if hasattr(enemy, 'multiplayer_id'): 
-                                    my_enemy_pos[enemy.multiplayer_id] = (enemy.hitbox.x, enemy.hitbox.y)
+                                    # Send (x, y, facing_right, status) for full animation sync
+                                    my_enemy_pos[enemy.multiplayer_id] = (
+                                        enemy.hitbox.x, 
+                                        enemy.hitbox.y, 
+                                        enemy.facing_right, 
+                                        enemy.status
+                                    )
                         
                         payload['killed_enemies'] = list(self.killed_enemies_queue) 
                         payload['reported_hits'] = list(self.reported_hits_queue)
@@ -818,28 +824,22 @@ class Game:
                     knockback_active = now < getattr(enemy, '_knockback_until', 0)
                     
                     if not knockback_active:
-                        old_x = enemy.hitbox.x
-                        
                         # Target authoritative hitbox position, then sync visual rect
                         enemy.hitbox.x = srv_enemies[eid]['x']; enemy.hitbox.y = srv_enemies[eid]['y']
                         enemy.pos.x = enemy.hitbox.x; enemy.pos.y = enemy.hitbox.y
                         enemy.rect.midbottom = enemy.hitbox.midbottom
                         
-                        # Infer animation status from movement
-                        dx = enemy.hitbox.x - old_x
-                        if dx > 0:
-                            enemy.facing_right = True
-                            enemy._update_status(chasing=True)
-                        elif dx < 0:
-                            enemy.facing_right = False
-                            enemy._update_status(chasing=True)
-                        else:
-                            enemy._update_status(chasing=False)
+                        # Use authoritative animation status from server
+                        enemy.facing_right = srv_enemies[eid].get('f', True)
+                        new_s = srv_enemies[eid].get('s', 'idle')
+                        if enemy.status != new_s:
+                            enemy.status = new_s
+                            enemy.frame_index = 0
                     else:
-                        # Keep animation status updated (walking/chasing) even during knockback 
-                        # so the enemy doesn't look like a static sliding sprite.
-                        enemy._update_status(chasing=True)
-                        # Apply the knockback movement locally.
+                        # Keep animation status updated from server even during local knockback
+                        enemy.facing_right = srv_enemies[eid].get('f', True)
+                        enemy.status = srv_enemies[eid].get('s', 'idle')
+                        # Apply local knockback movement
                         enemy.direction.x = 0
                         enemy.direction.y = 0
                         enemy.move(0, dt)
@@ -907,7 +907,10 @@ class Game:
                 
                 if in_attack_range:
                     # Actually apply damage to the target
-                    target.get_damage(enemy.damage, enemy.hitbox.center)
+                    # IMPORTANT: Only damage locally if it's the own player. 
+                    # Remote players manage their own damage to avoid double-flashing.
+                    if not getattr(target, 'is_remote', False):
+                        target.get_damage(enemy.damage, enemy.hitbox.center)
                     # Bump the enemy slightly back so it doesn't glue to the player if lag occurs
                     diff = pygame.math.Vector2(enemy.hitbox.center) - pygame.math.Vector2(target.hitbox.center)
                     if diff.magnitude() > 0:
@@ -992,7 +995,6 @@ class Game:
         spawn_pos = server_data.get('spawn_pos', (0,0))
         entrance = DungeonEntrance(spawn_pos, [self.visible_sprites])
         self.dungeon_entrance_pos = pygame.math.Vector2(spawn_pos); self.dungeon_entrance_rect = entrance.rect
-        self.player.rect.topleft = spawn_pos; self.player.pos = pygame.math.Vector2(spawn_pos); self.player.obstacle_sprites = self.obstacle_sprites; self.player.add(self.visible_sprites)
         self.player.rect.topleft = spawn_pos; self.player.pos = pygame.math.Vector2(spawn_pos); self.player.obstacle_sprites = self.obstacle_sprites; self.player.add(self.visible_sprites)
         # Spawn protection
         if self.multi_level <= 1:

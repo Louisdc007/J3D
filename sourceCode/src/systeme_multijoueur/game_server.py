@@ -237,8 +237,15 @@ class GameServer:
                         if self.players and player_id == min(self.players.keys()):
                             for e_id, epos in enemy_pos.items():
                                 if e_id in self.server_enemies:
-                                    self.server_enemies[e_id][0] = epos[0]
-                                    self.server_enemies[e_id][1] = epos[1]
+                                    # epos can now be (x, y, facing, status)
+                                    self.server_enemies[e_id][0] = epos[0] # x
+                                    self.server_enemies[e_id][1] = epos[1] # y
+                                    if len(epos) > 2:
+                                        if len(self.server_enemies[e_id]) < 5:
+                                            # Extend list if it only had [x, y, tier]
+                                            self.server_enemies[e_id].extend([True, 'idle'])
+                                        self.server_enemies[e_id][3] = epos[2] # facing
+                                        self.server_enemies[e_id][4] = epos[3] # status
                             
                             # ITEMS: Host spawns new items
                             new_items = payload.get('new_items', [])
@@ -289,7 +296,13 @@ class GameServer:
                             self.resting_players.clear()
 
                 with self.lock:
-                    enemies_list = [{'id': eid, 'x': int(d[0]), 'y': int(d[1]), 'type': d[2]} for eid, d in self.server_enemies.items()]
+                    enemies_list = []
+                    for eid, d in self.server_enemies.items():
+                        e_dict = {'id': eid, 'x': int(d[0]), 'y': int(d[1]), 'type': d[2]}
+                        if len(d) > 4:
+                            e_dict['f'] = d[3] # facing
+                            e_dict['s'] = d[4] # status
+                        enemies_list.append(e_dict)
                     client_needs_map = payload.get('client_level', 0) != self.current_level or payload.get('need_map', False)
                     obs_list = [{'x': int(o.rect.x), 'y': int(o.rect.y)} for o in self.obstacles] if (self.game_state == 'PLAYING' and client_needs_map) else []
                     floor_list = [{'x': int(f['x']), 'y': int(f['y'])} for f in getattr(self, 'floor_tiles', [])] if (self.game_state == 'PLAYING' and client_needs_map) else []
