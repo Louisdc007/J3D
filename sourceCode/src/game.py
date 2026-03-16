@@ -89,6 +89,7 @@ class Game:
         self.current_pickups = []
         self.multi_server_data_cache = None
         self.pending_multi_action = None
+        self.network_lock = threading.Lock()
         
         self.transition_active = False
         self.transition_timer = 0
@@ -227,11 +228,33 @@ class Game:
     def _network_task(self):
         while self.network_running and self.network and self.network.client:
             try:
-                # Always send the latest payload
-                response = self.network.send(self.current_payload)
+                # Build payload carefully with locks to not lose events
+                with self.network_lock:
+                    payload = self.current_payload.copy()
+                    
+                    if self.multi_state == 'playing':
+                        my_enemy_pos = {}
+                        if self.player_id == self.host_id:
+                            for enemy in self.attackable_sprites:
+                                if hasattr(enemy, 'multiplayer_id'): 
+                                    my_enemy_pos[enemy.multiplayer_id] = (enemy.hitbox.x, enemy.hitbox.y)
+                        
+                        payload['killed_enemies'] = list(self.killed_enemies_queue) 
+                        payload['reported_hits'] = list(self.reported_hits_queue)
+                        payload['new_items'] = list(self.spawn_items_queue)
+                        payload['pickup_items'] = list(self.current_pickups)
+                        payload['enemy_positions'] = my_enemy_pos
+                        
+                        self.killed_enemies_queue.clear()
+                        self.reported_hits_queue.clear()
+                        self.spawn_items_queue.clear()
+                        self.current_pickups.clear()
+
+                # Always send the compiled payload
+                response = self.network.send(payload)
                 if response:
                     self.multi_server_data_cache = response
-                time.sleep(0.016) # Target 60 updates/sec for smooth enemy movement on client
+                time.sleep(0.016) # Target 60 updates/sec
             except Exception as e:
                 print(f"Network thread error: {e}")
                 break
@@ -618,7 +641,8 @@ class Game:
                                 offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); 
                                 pos = (enemy.hitbox.centerx + offset_x, enemy.hitbox.centery + offset_y)
                                 if self.is_multiplayer:
-                                    self.spawn_items_queue.append({'x': pos[0], 'y': pos[1], 'type': item_type})
+                                    with self.network_lock:
+                                        self.spawn_items_queue.append({'x': pos[0], 'y': pos[1], 'type': item_type})
                                 else:
                                     Item(pos, [self.visible_sprites, self.item_sprites], item_type)
                     enemy.kill()
@@ -631,7 +655,8 @@ class Game:
                         mid = getattr(item, 'multiplayer_id', None)
                         if mid is not None and not getattr(item, '_picked', False):
                             item._picked = True
-                            picked_items.append(mid)
+                            with self.network_lock:
+                                self.current_pickups.append(mid)
                             # Local immediate feedback
                             if item.type == 'health': self.player.health = min(self.player.max_health, self.player.health + 10)
                             elif item.type in self.player.inventory: self.player.inventory[item.type] += 1
@@ -640,8 +665,6 @@ class Game:
                         if item.type == 'health': self.player.health = min(self.player.max_health, self.player.health + 10)
                         elif item.type in self.player.inventory: self.player.inventory[item.type] += 1
                         item.kill()
-            
-            self.current_pickups = picked_items
 
             if len([e for e in self.attackable_sprites if hasattr(e, 'health')]) == 0 and not self.transition_active:
                 self.transition_active = True; self.transition_timer = 0; self.transition_duration = 3.0; self.transition_type = 'morning'; self.game_time = self.full_day_duration
@@ -690,34 +713,14 @@ class Game:
         if self.player.health <= 0 and self.multi_state not in ['gameover', 'resting']:
             action = 'player_died'
             
-        payload = {
-            'action': action, 
-            'pos': (self.player.hitbox.x, self.player.hitbox.y),
-            'status': self.player.status,
-            'facing_right': self.player.facing_right,
-            'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0,
-            'pickup_items': getattr(self, 'current_pickups', [])
-        }
-        self.current_pickups = [] # Clear after adding to payload
-        
-        if self.multi_state == 'playing':
-            my_enemy_pos = {}
-            if self.player_id == self.host_id:
-                for enemy in self.attackable_sprites:
-                    # Send hitbox position as the authoritative physics point
-                    if hasattr(enemy, 'multiplayer_id'): 
-                        my_enemy_pos[enemy.multiplayer_id] = (enemy.hitbox.x, enemy.hitbox.y)
-            
-            payload['killed_enemies'] = list(self.killed_enemies_queue) 
-            payload['reported_hits'] = list(self.reported_hits_queue)
-            payload['new_items'] = list(self.spawn_items_queue)
-            payload['enemy_positions'] = my_enemy_pos
-            
-            self.killed_enemies_queue.clear()
-            self.reported_hits_queue.clear()
-            self.spawn_items_queue.clear()
-            
-        self.current_payload = payload
+        with self.network_lock:
+            self.current_payload = {
+                'action': action, 
+                'pos': (self.player.hitbox.x, self.player.hitbox.y),
+                'status': self.player.status,
+                'facing_right': self.player.facing_right,
+                'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0
+            }
         
         server_data = self.multi_server_data_cache
         if server_data:
@@ -825,11 +828,12 @@ class Game:
                 else:
                     # Client reports the hit instead of applying it locally to authoritative sprite
                     if hasattr(e, 'multiplayer_id'):
-                        self.reported_hits_queue.append({
-                            'eid': e.multiplayer_id,
-                            'origin': (self.player.rect.centerx, self.player.rect.centery),
-                            'dmg': self.player.attack_damage
-                        })
+                        with self.network_lock:
+                            self.reported_hits_queue.append({
+                                'eid': e.multiplayer_id,
+                                'origin': (self.player.rect.centerx, self.player.rect.centery),
+                                'dmg': self.player.attack_damage
+                            })
 
         for enemy in self.attackable_sprites:
             # Use hitbox-to-hitbox distance for precise range regardless of sprite scale
@@ -852,7 +856,9 @@ class Game:
                 self.player.get_damage(enemy.damage, enemy.hitbox.center)
 
             if enemy.health <= 0:
-                if hasattr(enemy, 'multiplayer_id'): self.killed_enemies_queue.append(enemy.multiplayer_id)
+                if hasattr(enemy, 'multiplayer_id'): 
+                    with self.network_lock:
+                        self.killed_enemies_queue.append(enemy.multiplayer_id)
                 # Spawning items: Only the Host queues them officially
                 if self.player_id == self.host_id:
                     for item_type, (min_amt, max_amt) in enemy.loot_table.items():
@@ -860,7 +866,8 @@ class Game:
                         for _ in range(amount):
                             offset_x = random.randint(-30, 30); offset_y = random.randint(-30, 30); 
                             pos = (enemy.hitbox.centerx + offset_x, enemy.hitbox.centery + offset_y)
-                            self.spawn_items_queue.append({'x': pos[0], 'y': pos[1], 'type': item_type})
+                            with self.network_lock:
+                                self.spawn_items_queue.append({'x': pos[0], 'y': pos[1], 'type': item_type})
                 enemy.kill()
 
         # ITEM SYNC: Sync local items with server authoritative list
