@@ -874,8 +874,8 @@ class Game:
                         old_hp = e.health
                         e.get_damage(self.player.rect.center, self.player.attack_damage)
                         e.health = old_hp
-                        # Skip server overwrite for a short window to let local physics play out
-                        e._knockback_until = pygame.time.get_ticks() + 300
+                        # Skip server overwrite for 400ms to match enemy's vulnerability window (physics sync)
+                        e._knockback_until = pygame.time.get_ticks() + 400
                     
                     # Report hit to server
                     if hasattr(e, 'multiplayer_id'):
@@ -899,7 +899,10 @@ class Game:
                             min_dist = dist
                             target = p
                             
-                # If the enemy is reeling from knockback, reduce AI speed to 0 so it doesn't fight the recoil
+                in_attack_range = min_dist < 60
+                
+                # If the enemy is reeling from knockback (not vulnerable), reduce AI speed to 0 
+                # so it doesn't fight the recoil, keeping host/client physics aligned.
                 current_speed = enemy.speed if enemy.vulnerable else 0
                 enemy.enemy_update(target, dt, is_attacking=in_attack_range, speed=current_speed)
                 
