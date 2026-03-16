@@ -294,11 +294,17 @@ class GameServer:
                     obs_list = [{'x': o.rect.x, 'y': o.rect.y} for o in self.obstacles] if (self.game_state == 'PLAYING' and client_needs_map) else []
                     floor_list = getattr(self, 'floor_tiles', []) if (self.game_state == 'PLAYING' and client_needs_map) else []
                     
+                    # Serialize players as lightweight dicts to reduce pickle overhead
+                    players_dict = {
+                        pid: {'x': p.x, 'y': p.y, 'status': p.status, 'facing_right': p.facing_right}
+                        for pid, p in self.players.items()
+                    }
+                    
                     response = {
                         'state': self.game_state,
                         'level': self.current_level,
                         'spawn_pos': (self.spawn_x, self.spawn_y),
-                        'players': self.players,
+                        'players': players_dict,
                         'dead_enemies': list(self.dead_enemies),
                         'server_enemies': enemies_list,
                         'server_items': self.server_items,
@@ -315,6 +321,8 @@ class GameServer:
                         self.pending_hits = []
                 
                 self._send_msg(client_socket, response)
+                # Rate-limit: cap the server loop at ~200 Hz to free CPU for the game thread
+                time.sleep(0.005)
                 
         except Exception as e:
             print(f"[SERVER] Erreur handle_player (ID:{player_id}, Addr:{addr}) : {e}")

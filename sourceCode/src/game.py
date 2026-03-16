@@ -769,25 +769,29 @@ class Game:
         
         for pid, pdata in players_data.items():
             if pid != self.player_id:
+                # pdata is now a lightweight dict: {'x', 'y', 'status', 'facing_right'}
+                px = pdata['x'] if isinstance(pdata, dict) else pdata.x
+                py = pdata['y'] if isinstance(pdata, dict) else pdata.y
+                pstatus = pdata.get('status', 'idle') if isinstance(pdata, dict) else getattr(pdata, 'status', 'idle')
+                pfacing = pdata.get('facing_right', True) if isinstance(pdata, dict) else getattr(pdata, 'facing_right', True)
                 if pid not in self.other_players: 
-                    clone = Player((pdata.x, pdata.y), [self.visible_sprites], self.obstacle_sprites)
+                    clone = Player((px, py), [self.visible_sprites], self.obstacle_sprites)
                     clone.input = lambda: None
                     clone.is_remote = True
                     self.other_players[pid] = clone
                 else:
                     clone = self.other_players[pid]
                     # Apply to hitbox (authoritative physics position), then sync visual rect
-                    clone.hitbox.x = pdata.x
-                    clone.hitbox.y = pdata.y
-                    clone.pos.x = pdata.x
-                    clone.pos.y = pdata.y
+                    clone.hitbox.x = px
+                    clone.hitbox.y = py
+                    clone.pos.x = px
+                    clone.pos.y = py
                     clone.rect.midbottom = clone.hitbox.midbottom
                     # Sync animation state
-                    new_status = getattr(pdata, 'status', 'idle')
-                    if clone.status != new_status:
-                        clone.status = new_status
+                    if clone.status != pstatus:
+                        clone.status = pstatus
                         clone.frame_index = 0
-                    clone.facing_right = getattr(pdata, 'facing_right', True)
+                    clone.facing_right = pfacing
         
         for pid in list(self.other_players.keys()):
             if pid not in active_pids: self.other_players[pid].kill(); del self.other_players[pid]
@@ -795,28 +799,34 @@ class Game:
         dead_enemies = server_data.get('dead_enemies', [])
         srv_enemies = {e['id']: e for e in server_data.get('server_enemies', [])}
         
+        now = pygame.time.get_ticks()
         for enemy in list(self.attackable_sprites):
             if hasattr(enemy, 'multiplayer_id'):
                 eid = enemy.multiplayer_id
                 if eid in dead_enemies or eid not in srv_enemies: enemy.kill()
                 elif self.player_id != self.host_id:
-                    old_x = enemy.hitbox.x
+                    # Don't overwrite position while a local knockback is still playing
+                    knockback_active = now < getattr(enemy, '_knockback_until', 0)
                     
-                    # Target authoritative hitbox position, then sync visual rect
-                    enemy.hitbox.x = srv_enemies[eid]['x']; enemy.hitbox.y = srv_enemies[eid]['y']
-                    enemy.pos.x = enemy.hitbox.x; enemy.pos.y = enemy.hitbox.y
-                    enemy.rect.midbottom = enemy.hitbox.midbottom
-                    
-                    # Infer animation status from movement
-                    dx = enemy.hitbox.x - old_x
-                    if dx > 0:
-                        enemy.facing_right = True
-                        enemy._update_status(chasing=True)
-                    elif dx < 0:
-                        enemy.facing_right = False
-                        enemy._update_status(chasing=True)
-                    else:
-                        enemy._update_status(chasing=False)
+                    if not knockback_active:
+                        old_x = enemy.hitbox.x
+                        
+                        # Target authoritative hitbox position, then sync visual rect
+                        enemy.hitbox.x = srv_enemies[eid]['x']; enemy.hitbox.y = srv_enemies[eid]['y']
+                        enemy.pos.x = enemy.hitbox.x; enemy.pos.y = enemy.hitbox.y
+                        enemy.rect.midbottom = enemy.hitbox.midbottom
+                        
+                        # Infer animation status from movement
+                        dx = enemy.hitbox.x - old_x
+                        if dx > 0:
+                            enemy.facing_right = True
+                            enemy._update_status(chasing=True)
+                        elif dx < 0:
+                            enemy.facing_right = False
+                            enemy._update_status(chasing=True)
+                        else:
+                            enemy._update_status(chasing=False)
+                    # While knockback is active: let enemy.move() handle position naturally
             
         # HOST Processes hits reported by clients
         if self.player_id == self.host_id:
@@ -840,7 +850,21 @@ class Game:
                 if self.player_id == self.host_id:
                     e.get_damage(self.player.rect.center, self.player.attack_damage)
                 else:
-                    # Client reports the hit instead of applying it locally to authoritative sprite
+                    # Apply ONLY the visual effects locally (knockback + flash), WITHOUT touching HP.
+                    # HP authority stays on the server — this avoids killing the enemy prematurely.
+                    if e.vulnerable:
+                        e.vulnerable = False
+                        e.hit_time = pygame.time.get_ticks()
+                        e._is_flashing = True
+                        # Apply knockback vector directly
+                        my_pos = pygame.math.Vector2(e.hitbox.center)
+                        other_pos = pygame.math.Vector2(self.player.rect.center)
+                        diff = my_pos - other_pos
+                        if diff.magnitude() != 0:
+                            e.knockback = diff.normalize() * 900
+                        # Preserve the local knockback window for ~400ms so server pos overwrite is skipped
+                        e._knockback_until = pygame.time.get_ticks() + 400
+                    # Report the hit to the server for authoritative HP deduction
                     if hasattr(e, 'multiplayer_id'):
                         with self.network_lock:
                             self.reported_hits_queue.append({
