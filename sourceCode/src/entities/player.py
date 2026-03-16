@@ -38,7 +38,7 @@ class Player(pygame.sprite.Sprite):
         self.obstacle_sprites = obstacles
         # Attack setup
         self.attacking = False
-        self.attack_cooldown = 250
+        self.attack_cooldown = 450
         self.attack_time = 0
         self.current_weapon = None
         self.is_dashing = False

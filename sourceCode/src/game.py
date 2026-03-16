@@ -850,24 +850,33 @@ class Game:
                             })
 
         for enemy in self.attackable_sprites:
-            # Use hitbox-to-hitbox distance for precise range regardless of sprite scale
-            enemy_dist = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center)
-            in_attack_range = enemy_dist < 60 # Légèrement plus large en multi pour compenser le jitter
-            
-            # The non-host receives positions from the server — no need to compute them
-            if self.player_id == self.host_id: 
+            # The non-host receives positions from the server — no need to compute AI
+            if self.player_id == self.host_id:
+                # Find the true closest player to the enemy to set as target
                 target = self.player
-                min_dist = pygame.math.Vector2(self.player.rect.center).distance_to(enemy.rect.center)
+                min_dist = pygame.math.Vector2(self.player.hitbox.center).distance_to(enemy.hitbox.center)
                 for p in self.other_players.values():
-                    if p.rect.x > -1000: 
-                        dist = pygame.math.Vector2(p.rect.center).distance_to(enemy.rect.center)
+                    if p.hitbox.x > -1000:
+                        dist = pygame.math.Vector2(p.hitbox.center).distance_to(enemy.hitbox.center)
                         if dist < min_dist:
                             min_dist = dist
                             target = p
+                            
+                in_attack_range = min_dist < 60
                 enemy.enemy_update(target, dt, is_attacking=in_attack_range)
-
-            if in_attack_range:
-                self.player.get_damage(enemy.damage, enemy.hitbox.center)
+                
+                if in_attack_range:
+                    # Actually apply damage to the target
+                    target.get_damage(enemy.damage, enemy.hitbox.center)
+                    # Bump the enemy slightly back so it doesn't glue to the player if lag occurs
+                    diff = pygame.math.Vector2(enemy.hitbox.center) - pygame.math.Vector2(target.hitbox.center)
+                    if diff.magnitude() > 0:
+                        enemy.knockback += diff.normalize() * 150
+            else:
+                # Client just needs to know if *they* are being damaged
+                in_attack_range = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center) < 60
+                if in_attack_range:
+                    self.player.get_damage(enemy.damage, enemy.hitbox.center)
 
             if enemy.health <= 0:
                 if hasattr(enemy, 'multiplayer_id'): 
