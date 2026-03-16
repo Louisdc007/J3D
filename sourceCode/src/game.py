@@ -647,24 +647,12 @@ class Game:
                                     Item(pos, [self.visible_sprites, self.item_sprites], item_type)
                     enemy.kill()
 
-            picked_items = []
             for item in self.item_sprites:
                 # Use hitbox-to-hitbox collision for better feel
                 if item.hitbox.colliderect(self.player.hitbox):
-                    if self.is_multiplayer:
-                        mid = getattr(item, 'multiplayer_id', None)
-                        if mid is not None and not getattr(item, '_picked', False):
-                            item._picked = True
-                            with self.network_lock:
-                                self.current_pickups.append(mid)
-                            # Local immediate feedback
-                            if item.type == 'health': self.player.health = min(self.player.max_health, self.player.health + 10)
-                            elif item.type in self.player.inventory: self.player.inventory[item.type] += 1
-                            item.kill() 
-                    else:
-                        if item.type == 'health': self.player.health = min(self.player.max_health, self.player.health + 10)
-                        elif item.type in self.player.inventory: self.player.inventory[item.type] += 1
-                        item.kill()
+                    if item.type == 'health': self.player.health = min(self.player.max_health, self.player.health + 10)
+                    elif item.type in self.player.inventory: self.player.inventory[item.type] += 1
+                    item.kill()
 
             if len([e for e in self.attackable_sprites if hasattr(e, 'health')]) == 0 and not self.transition_active:
                 self.transition_active = True; self.transition_timer = 0; self.transition_duration = 3.0; self.transition_type = 'morning'; self.game_time = self.full_day_duration
@@ -756,6 +744,19 @@ class Game:
             if self.multi_state == 'playing':
                 self.game_time += self.clock.get_time()
                 self.sync_multi_entities(server_data, dt)
+                
+                # Pick up items locally and report to server
+                for item in self.item_sprites:
+                    if item.hitbox.colliderect(self.player.hitbox):
+                        mid = getattr(item, 'multiplayer_id', None)
+                        if mid is not None and not getattr(item, '_picked', False):
+                            item._picked = True
+                            with self.network_lock:
+                                self.current_pickups.append(mid)
+                            # Local immediate feedback
+                            if item.type == 'health': self.player.health = min(self.player.max_health, self.player.health + 10)
+                            elif item.type in self.player.inventory: self.player.inventory[item.type] += 1
+                            item.kill()
                 
                 if self.game_time >= self.full_day_duration:
                     if self.is_player_at_entrance(): self.multi_state = 'upgrade'
