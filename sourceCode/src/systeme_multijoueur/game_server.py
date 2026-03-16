@@ -142,6 +142,7 @@ class GameServer:
                 # Remove SO_REUSEPORT so that we correctly get an OSError and try the next port 
                 # if a zombie server process is clinging to port 55555.
                 self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                self.server_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self.server_socket.bind(('0.0.0.0', self.port + attempt))
                 self.server_socket.listen(4)
                 self.port = self.port + attempt
@@ -159,6 +160,7 @@ class GameServer:
             try:
                 if self.server_socket:
                     client_socket, addr = self.server_socket.accept()
+                    client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     print(f"[SERVER] Connexion TCP acceptée de {addr}")
                     threading.Thread(target=self.handle_player, args=(client_socket, addr), daemon=True).start()
             except Exception as e:

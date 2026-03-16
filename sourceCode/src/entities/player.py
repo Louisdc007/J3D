@@ -117,7 +117,9 @@ class Player(pygame.sprite.Sprite):
             self.status = 'walk'
             
         if self.status != old_status:
-            self.frame_index = 0
+            # Only reset frame index forcibly for critical animations
+            if self.status in ['atk', 'ded']:
+                self.frame_index = 0
 
     def animate(self):
         animation = self.animations[self.status]

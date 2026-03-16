@@ -800,10 +800,23 @@ class Game:
                 eid = enemy.multiplayer_id
                 if eid in dead_enemies or eid not in srv_enemies: enemy.kill()
                 elif self.player_id != self.host_id:
+                    old_x = enemy.hitbox.x
+                    
                     # Target authoritative hitbox position, then sync visual rect
                     enemy.hitbox.x = srv_enemies[eid]['x']; enemy.hitbox.y = srv_enemies[eid]['y']
                     enemy.pos.x = enemy.hitbox.x; enemy.pos.y = enemy.hitbox.y
                     enemy.rect.midbottom = enemy.hitbox.midbottom
+                    
+                    # Infer animation status from movement
+                    dx = enemy.hitbox.x - old_x
+                    if dx > 0:
+                        enemy.facing_right = True
+                        enemy._update_status(chasing=True)
+                    elif dx < 0:
+                        enemy.facing_right = False
+                        enemy._update_status(chasing=True)
+                    else:
+                        enemy._update_status(chasing=False)
             
         # HOST Processes hits reported by clients
         if self.player_id == self.host_id:

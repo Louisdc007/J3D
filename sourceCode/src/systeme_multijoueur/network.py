@@ -62,6 +62,7 @@ class Network:
 
     def __init__(self, server="127.0.0.1", port=55555):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         self.client.settimeout(10.0) # Augmenté de 2s à 10s pour le WiFi
         self.server = server
         self.port = port

@@ -1,12 +1,12 @@
 {
     "player": {
         "level": 6,
-        "current_health": 47,
+        "current_health": -17,
         "max_health": 80,
-        "xp": 93,
+        "xp": 153,
         "xp_to_next": 657,
-        "gold": 1,
-        "iron": 29,
+        "gold": 0,
+        "iron": 0,
         "attack_damage": 30
     },
     "hub": {
