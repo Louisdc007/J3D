@@ -828,9 +828,9 @@ class Game:
                     knockback_active = now < getattr(enemy, '_knockback_until', 0)
                     
                     if not knockback_active:
-                        # Reconcile position smoothly via LERP
-                        enemy.pos.x += (srv_enemies[eid]['x'] - enemy.pos.x) * 0.4
-                        enemy.pos.y += (srv_enemies[eid]['y'] - enemy.pos.y) * 0.4
+                        # Reconcile position with a very soft LERP (0.1) after the authority window
+                        enemy.pos.x += (srv_enemies[eid]['x'] - enemy.pos.x) * 0.1
+                        enemy.pos.y += (srv_enemies[eid]['y'] - enemy.pos.y) * 0.1
                         enemy.hitbox.x = int(enemy.pos.x); enemy.hitbox.y = int(enemy.pos.y)
                         enemy.rect.midbottom = enemy.hitbox.midbottom
                         
@@ -857,6 +857,15 @@ class Game:
                 # Find the enemy by multiplayer_id
                 for enemy in self.attackable_sprites:
                     if getattr(enemy, 'multiplayer_id', -1) == eid:
+                        # ANCHOR SYNCHRONIZATION:
+                        # Teleport enemy to the exact position reported by the client 
+                        # to ensure starting positions match perfectly for the recoil physics.
+                        if 'ex' in hit and 'ey' in hit:
+                            enemy.pos.x = hit['ex']
+                            enemy.pos.y = hit['ey']
+                            enemy.hitbox.x = int(enemy.pos.x)
+                            enemy.hitbox.y = int(enemy.pos.y)
+                        
                         enemy.get_damage(hit['origin'], hit['dmg'])
                         break
 
@@ -877,17 +886,19 @@ class Game:
                         old_hp = e.health
                         e.get_damage(self.player.rect.center, self.player.attack_damage)
                         e.health = old_hp
-                        # OPTIMIZED AUTHORITY WINDOW (600ms):
-                        # Matches recoil (400ms) + safety buffer (200ms) for network round-trip.
-                        e._knockback_until = pygame.time.get_ticks() + 600
+                        # CRITICAL AUTHORITY WINDOW (1000ms):
+                        # Total lock-out of server updates to let the Host's physics catch up.
+                        e._knockback_until = pygame.time.get_ticks() + 1000
                     
-                    # Report hit to server
+                    # Report hit to server with CLIENT-SIDE COORDINATES for anchoring
                     if hasattr(e, 'multiplayer_id'):
                         with self.network_lock:
                             self.reported_hits_queue.append({
                                 'eid': e.multiplayer_id,
                                 'origin': (self.player.rect.centerx, self.player.rect.centery),
-                                'dmg': self.player.attack_damage
+                                'dmg': self.player.attack_damage,
+                                'ex': e.pos.x, # Tell Host where we saw the enemy
+                                'ey': e.pos.y
                             })
 
         for enemy in self.attackable_sprites:
