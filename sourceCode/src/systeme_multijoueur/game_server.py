@@ -289,7 +289,7 @@ class GameServer:
                             self.resting_players.clear()
 
                 with self.lock:
-                    enemies_list = [{'id': eid, 'x': d[0], 'y': d[1], 'type': d[2]} for eid, d in self.server_enemies.items()]
+                    enemies_list = [{'id': eid, 'x': int(d[0]), 'y': int(d[1]), 'type': d[2]} for eid, d in self.server_enemies.items()]
                     client_needs_map = payload.get('client_level', 0) != self.current_level
                     obs_list = [{'x': o.rect.x, 'y': o.rect.y} for o in self.obstacles] if (self.game_state == 'PLAYING' and client_needs_map) else []
                     floor_list = getattr(self, 'floor_tiles', []) if (self.game_state == 'PLAYING' and client_needs_map) else []
@@ -321,8 +321,9 @@ class GameServer:
                         self.pending_hits = []
                 
                 self._send_msg(client_socket, response)
-                # Rate-limit: cap the server loop at ~200 Hz to free CPU for the game thread
-                time.sleep(0.005)
+                # Rate-limit: target ~60 Hz to match game frame rate.
+                # On Windows, sleep() has ~15ms min granularity so 0.016 is the right target.
+                time.sleep(0.016)
                 
         except Exception as e:
             print(f"[SERVER] Erreur handle_player (ID:{player_id}, Addr:{addr}) : {e}")

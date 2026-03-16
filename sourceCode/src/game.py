@@ -826,7 +826,13 @@ class Game:
                             enemy._update_status(chasing=True)
                         else:
                             enemy._update_status(chasing=False)
-                    # While knockback is active: let enemy.move() handle position naturally
+                    else:
+                        # Knockback is active: apply the knockback movement locally.
+                        # speed=0 means only the knockback vector contributes (no AI movement).
+                        # direction must be zeroed so only knockback pushes the enemy.
+                        enemy.direction.x = 0
+                        enemy.direction.y = 0
+                        enemy.move(0, dt)
             
         # HOST Processes hits reported by clients
         if self.player_id == self.host_id:
@@ -897,7 +903,7 @@ class Game:
                     if diff.magnitude() > 0:
                         enemy.knockback += diff.normalize() * 150
             else:
-                # Client just needs to know if *they* are being damaged
+                # Client: check damage from enemy and apply local knockback movement if active
                 in_attack_range = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center) < 60
                 if in_attack_range:
                     self.player.get_damage(enemy.damage, enemy.hitbox.center)
