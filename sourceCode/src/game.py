@@ -824,9 +824,11 @@ class Game:
                     knockback_active = now < getattr(enemy, '_knockback_until', 0)
                     
                     if not knockback_active:
-                        # Target authoritative hitbox position, then sync visual rect
-                        enemy.hitbox.x = srv_enemies[eid]['x']; enemy.hitbox.y = srv_enemies[eid]['y']
-                        enemy.pos.x = enemy.hitbox.x; enemy.pos.y = enemy.hitbox.y
+                        # Smooth LERP synchronization to avoid hard snaps/teleports
+                        #factor = 0.3  # Sync speed
+                        enemy.pos.x += (srv_enemies[eid]['x'] - enemy.pos.x) * 0.4
+                        enemy.pos.y += (srv_enemies[eid]['y'] - enemy.pos.y) * 0.4
+                        enemy.hitbox.x = int(enemy.pos.x); enemy.hitbox.y = int(enemy.pos.y)
                         enemy.rect.midbottom = enemy.hitbox.midbottom
                         
                         # Use authoritative animation status from server
@@ -836,12 +838,12 @@ class Game:
                             enemy.status = new_s
                             enemy.frame_index = 0
                     else:
-                        # Keep animation status updated from server even during local knockback
+                        # While knockback is active, stay in sync with server animation status
                         enemy.facing_right = srv_enemies[eid].get('f', True)
                         enemy.status = srv_enemies[eid].get('s', 'idle')
-                        # Apply local knockback movement
-                        enemy.direction.x = 0
-                        enemy.direction.y = 0
+                        
+                        # Apply movement locally — use speed=0 to only apply knockback vector
+                        enemy.direction.x = 0; enemy.direction.y = 0
                         enemy.move(0, dt)
             
         # HOST Processes hits reported by clients
@@ -866,21 +868,16 @@ class Game:
                 if self.player_id == self.host_id:
                     e.get_damage(self.player.rect.center, self.player.attack_damage)
                 else:
-                    # Apply ONLY the visual effects locally (knockback + flash), WITHOUT touching HP.
-                    # HP authority stays on the server — this avoids killing the enemy prematurely.
+                    # Apply local visual effects AND physics (via get_damage) WITHOUT touching HP
+                    # We temporarily store HP, call get_damage, then restore HP.
                     if e.vulnerable:
-                        e.vulnerable = False
-                        e.hit_time = pygame.time.get_ticks()
-                        e._is_flashing = True
-                        # Apply knockback vector directly
-                        my_pos = pygame.math.Vector2(e.hitbox.center)
-                        other_pos = pygame.math.Vector2(self.player.rect.center)
-                        diff = my_pos - other_pos
-                        if diff.magnitude() != 0:
-                            e.knockback = diff.normalize() * 900
-                        # Preserve the local knockback window for ~300ms (snappier than 400)
+                        old_hp = e.health
+                        e.get_damage(self.player.rect.center, self.player.attack_damage)
+                        e.health = old_hp
+                        # Skip server overwrite for a short window to let local physics play out
                         e._knockback_until = pygame.time.get_ticks() + 300
-                    # Report the hit to the server for authoritative HP deduction
+                    
+                    # Report hit to server
                     if hasattr(e, 'multiplayer_id'):
                         with self.network_lock:
                             self.reported_hits_queue.append({
@@ -902,19 +899,21 @@ class Game:
                             min_dist = dist
                             target = p
                             
-                in_attack_range = min_dist < 60
-                enemy.enemy_update(target, dt, is_attacking=in_attack_range)
+                # If the enemy is reeling from knockback, reduce AI speed to 0 so it doesn't fight the recoil
+                current_speed = enemy.speed if enemy.vulnerable else 0
+                enemy.enemy_update(target, dt, is_attacking=in_attack_range, speed=current_speed)
                 
                 if in_attack_range:
-                    # Actually apply damage to the target
-                    # IMPORTANT: Only damage locally if it's the own player. 
-                    # Remote players manage their own damage to avoid double-flashing.
-                    if not getattr(target, 'is_remote', False):
+                    # Actually apply damage ONLY to the local host player. 
+                    if target == self.player:
                         target.get_damage(enemy.damage, enemy.hitbox.center)
+                    
                     # Bump the enemy slightly back so it doesn't glue to the player if lag occurs
-                    diff = pygame.math.Vector2(enemy.hitbox.center) - pygame.math.Vector2(target.hitbox.center)
-                    if diff.magnitude() > 0:
-                        enemy.knockback += diff.normalize() * 150
+                    # ONLY if it hit the host player, to keep sync consistent for everyone
+                    if target == self.player:
+                        diff = pygame.math.Vector2(enemy.hitbox.center) - pygame.math.Vector2(target.hitbox.center)
+                        if diff.magnitude() > 0:
+                            enemy.knockback += diff.normalize() * 150
             else:
                 # Client: check damage from enemy and apply local knockback movement if active
                 in_attack_range = pygame.math.Vector2(enemy.hitbox.center).distance_to(self.player.hitbox.center) < 60

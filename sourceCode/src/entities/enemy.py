@@ -203,7 +203,7 @@ class Enemy(pygame.sprite.Sprite):
                     if speed > 0: self.hitbox.bottom = sprite.rect.top; self.pos.y = self.hitbox.y
                     if speed < 0: self.hitbox.top = sprite.rect.bottom; self.pos.y = self.hitbox.y
 
-    def enemy_update(self, player, dt, is_attacking: bool = False):
+    def enemy_update(self, player, dt, is_attacking: bool = False, speed=None):
         enemy_vect = pygame.math.Vector2(self.hitbox.center)
         player_vect = pygame.math.Vector2(player.rect.center)
         diff = player_vect - enemy_vect
@@ -218,7 +218,9 @@ class Enemy(pygame.sprite.Sprite):
             self.patrol()
 
         self._update_status(chasing, is_attacking)
-        self.move(self.speed, dt)
+        
+        move_speed = speed if speed is not None else self.speed
+        self.move(move_speed, dt)
 
     def reduce_knockback(self, dt):
         # Équivalent à *= 0.8 par frame à 60 FPS
