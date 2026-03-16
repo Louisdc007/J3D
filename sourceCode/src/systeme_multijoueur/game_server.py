@@ -124,7 +124,6 @@ class GameServer:
             return False
         
         self.running = True
-        self.running = True
         # Discovery broadcaster removed for reliability (IP entry only)
         # threading.Thread(target=self.discovery_broadcaster, daemon=True).start()
         from network import Network
@@ -357,4 +356,7 @@ class GameServer:
             client_socket.close()
 
     def stop(self):
+        self.running = False
+        if self.server_socket:
             self.server_socket.close()
+            self.server_socket = None

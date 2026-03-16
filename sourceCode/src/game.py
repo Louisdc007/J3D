@@ -718,10 +718,10 @@ class Game:
         with self.network_lock:
             self.current_payload = {
                 'action': action, 
-                'pos': (self.player.pos.x, self.player.pos.y), # Changed from hitbox to pos for smoother remote rendering
+                'pos': (int(self.player.pos.x), int(self.player.pos.y)), 
                 'status': self.player.status,
                 'facing_right': self.player.facing_right,
-                'vulnerable': self.player.vulnerable, # Added vulnerable state
+                'vulnerable': self.player.vulnerable,
                 'client_level': self.multi_level if self.game_state != 'multi_lobby' else 0,
                 'need_map': self._multi_map_needed
             }
@@ -828,28 +828,26 @@ class Game:
                     knockback_active = now < getattr(enemy, '_knockback_until', 0)
                     
                     if not knockback_active:
-                        # Smooth LERP synchronization (0.4 factor) to absorb micro-jitter
+                        # Reconcile position smoothly via LERP
                         enemy.pos.x += (srv_enemies[eid]['x'] - enemy.pos.x) * 0.4
                         enemy.pos.y += (srv_enemies[eid]['y'] - enemy.pos.y) * 0.4
                         enemy.hitbox.x = int(enemy.pos.x); enemy.hitbox.y = int(enemy.pos.y)
                         enemy.rect.midbottom = enemy.hitbox.midbottom
                         
-                        # Use authoritative animation status and invincibility from server
-                        enemy.facing_right = srv_enemies[eid].get('f', True)
-                        new_s = srv_enemies[eid].get('s', 'idle')
-                        if enemy.status != new_s:
-                            enemy.status = new_s
-                            enemy.frame_index = 0
                         enemy.vulnerable = srv_enemies[eid].get('v', True)
                         enemy._is_flashing = not enemy.vulnerable
                     else:
-                        # While knockback is active, stay in sync with server metadata only
-                        enemy.facing_right = srv_enemies[eid].get('f', True)
-                        enemy.status = srv_enemies[eid].get('s', 'idle')
-                        
-                        # Set speed to 0 so we only apply the knockback vector (matching Host logic)
+                        # Local physics authority during knockback recoil (600ms)
+                        # We still sync direction/status for visual consistency
                         enemy.direction.x = 0; enemy.direction.y = 0
                         enemy.move(0, dt)
+                    
+                    # Always sync animation metadata from server
+                    enemy.facing_right = srv_enemies[eid].get('f', True)
+                    new_s = srv_enemies[eid].get('s', 'idle')
+                    if enemy.status != new_s:
+                        enemy.status = new_s
+                        enemy.frame_index = 0
             
         # HOST Processes hits reported by clients
         if self.player_id == self.host_id:
@@ -879,10 +877,9 @@ class Game:
                         old_hp = e.health
                         e.get_damage(self.player.rect.center, self.player.attack_damage)
                         e.health = old_hp
-                        # EXTENDED AUTHORITY WINDOW (1000ms):
-                        # We give the client 1 second of local authority to finish the recoil animation
-                        # and allow the server's authoritative position to catch up over the network.
-                        e._knockback_until = pygame.time.get_ticks() + 1000
+                        # OPTIMIZED AUTHORITY WINDOW (600ms):
+                        # Matches recoil (400ms) + safety buffer (200ms) for network round-trip.
+                        e._knockback_until = pygame.time.get_ticks() + 600
                     
                     # Report hit to server
                     if hasattr(e, 'multiplayer_id'):
