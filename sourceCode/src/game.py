@@ -133,6 +133,8 @@ class Game:
         self.hub.spawn_npcs(self.player)
 
     def launch_game_server(self):
+        # Guard: Don't launch if already in a network state
+        if self.network or self.game_server: return
         try:
             self.game_server = GameServer(port=55555)
             if self.game_server.start():
@@ -295,16 +297,17 @@ class Game:
             self.save_all()
             
         self.is_multiplayer = False
+        self.multi_mode = None
         self.other_players.clear()
+        self.multi_status = ""
         self.multi_state = 'lobby'
         self.game_state = 'menu'
-        self._menu_lock_time = time.time() + 0.5  # Prevent accidental double-click into SOLO mode
+        self._menu_lock_time = time.time() + 1.0  # Safe lockout
         self.game_time = 0
         self.paused = False
-        self.paused = False
         self.transition_active = False
-        self.killed_enemies_queue.clear()
         self.request_start = False
+        self.multi_server_data_cache = None
         
         self.visible_sprites.empty()
         self.obstacle_sprites.empty()
@@ -828,12 +831,13 @@ class Game:
                     knockback_active = now < getattr(enemy, '_knockback_until', 0)
                     
                     if not knockback_active:
-                        # Reconcile position with a very soft LERP (0.1) after the authority window
+                        # Soft LERP for reconciliation
                         enemy.pos.x += (srv_enemies[eid]['x'] - enemy.pos.x) * 0.1
                         enemy.pos.y += (srv_enemies[eid]['y'] - enemy.pos.y) * 0.1
                         enemy.hitbox.x = int(enemy.pos.x); enemy.hitbox.y = int(enemy.pos.y)
                         enemy.rect.midbottom = enemy.hitbox.midbottom
                         
+                        # Only take server's vulnerability state if WE aren't in authority window
                         enemy.vulnerable = srv_enemies[eid].get('v', True)
                         enemy._is_flashing = not enemy.vulnerable
                     else:
@@ -886,9 +890,9 @@ class Game:
                         old_hp = e.health
                         e.get_damage(self.player.rect.center, self.player.attack_damage)
                         e.health = old_hp
-                        # CRITICAL AUTHORITY WINDOW (1000ms):
-                        # Total lock-out of server updates to let the Host's physics catch up.
-                        e._knockback_until = pygame.time.get_ticks() + 1000
+                        # DEFINITIVE AUTHORITY WINDOW (1500ms):
+                        # Forcefully ignore server updates to guarantee recoil settles.
+                        e._knockback_until = pygame.time.get_ticks() + 1500
                     
                     # Report hit to server with CLIENT-SIDE COORDINATES for anchoring
                     if hasattr(e, 'multiplayer_id'):
@@ -1269,9 +1273,9 @@ class Game:
         code_display = self.menu_font.render(display_text, True, (255, 255, 255))
         self.screen.blit(code_display, (code_rect.x + 15, code_rect.y + 10))
         
-        connect_btn = pygame.Rect(WIDTH//2 - 100, 290, 200, 50)
-        back_btn = pygame.Rect(WIDTH//2 - 100, 360, 200, 50)
-        help_btn = pygame.Rect(WIDTH//2 - 150, 430, 300, 40)
+        connect_btn = pygame.Rect(WIDTH//2 - 100, 310, 200, 50) # Shifted down to avoid overlap
+        back_btn = pygame.Rect(WIDTH//2 - 100, 380, 200, 50)
+        help_btn = pygame.Rect(WIDTH//2 - 150, 450, 300, 40)
         
         mouse_pos = pygame.mouse.get_pos()
         for rect, text in [ (connect_btn, "REJOINDRE"), (back_btn, "RETOUR"), (help_btn, "AIDE CONNEXION") ]:
