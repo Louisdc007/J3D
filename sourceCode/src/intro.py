@@ -18,7 +18,7 @@ class IntroScene:
         self.slides = [
             {
                 "image_name": "3.png",
-                "text": "Après des années de bataille... un paladin rentra enfin cdasn sa terre natale.",
+                "text": "Après des années de bataille... un paladin rentra enfin dans sa terre natale.",
                 "color": (40, 35, 30)
             },
             {
