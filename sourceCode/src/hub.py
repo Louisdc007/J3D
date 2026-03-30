@@ -1,7 +1,23 @@
 import pygame
 import random
+import os
 from settings import *
 from entities.npc import NPC
+
+# Mapping des textures de bâtiments
+BUILDING_TEXTURES = {
+    'bank': 'bank.jpg',
+    'forge': 'forge.jpg',
+    'library': 'bibli.jpg',
+    'shop': 'marche.jpg',
+    'path': ('floor_assets', 'dirt_path.jpg'),  # Tuple = dossier différent
+}
+
+# Bâtiments avec mode de rendu spécial (fill-Y, crop-X centré)
+BUILDING_CROP_MODE = {'library'}
+
+# Bâtiments avec mode motif : la texture est scalée puis découpée pour être alignée sur la grille
+BUILDING_PATTERN_MODE = {'path': (320, 320)}  # 5x5 tiles de 64px
 
 class Block(pygame.sprite.Sprite):
     def __init__(self, rect, group):
@@ -13,9 +29,47 @@ class Building(pygame.sprite.Sprite):
         super().__init__(group)
         self.type = type
         data = BUILDING_DATA[type]
-        self.image = pygame.Surface(data['size'])
-        self.image.fill(data['color'])
-        pygame.draw.rect(self.image, (30, 30, 30), (0, 0, data['size'][0], data['size'][1]), 3)
+        # Charger la texture si disponible, sinon rectangle de couleur
+        target_w, target_h = data['size']
+        if type in BUILDING_TEXTURES:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            tex_entry = BUILDING_TEXTURES[type]
+            if isinstance(tex_entry, tuple):
+                tex_path = os.path.join(base_path, 'assets', tex_entry[0], tex_entry[1])
+            else:
+                tex_path = os.path.join(base_path, 'assets', 'building', tex_entry)
+            try:
+                tex = pygame.image.load(tex_path).convert()
+                if type in BUILDING_CROP_MODE:
+                    # Mode spécial : remplir la hauteur, cropper le surplus en largeur (centré)
+                    orig_w, orig_h = tex.get_size()
+                    scale_factor = target_h / orig_h
+                    scaled_w = int(orig_w * scale_factor)
+                    scaled_h = target_h
+                    tex_scaled = pygame.transform.scale(tex, (scaled_w, scaled_h))
+                    # Crop centré sur X
+                    crop_x = (scaled_w - target_w) // 2
+                    self.image = tex_scaled.subsurface(pygame.Rect(crop_x, 0, target_w, target_h)).copy()
+                elif type in BUILDING_PATTERN_MODE:
+                    # Mode motif : redimensionner à la taille du motif global et extraire le bout
+                    pat_w, pat_h = BUILDING_PATTERN_MODE[type]
+                    tex_scaled = pygame.transform.scale(tex, (pat_w, pat_h))
+                    px, py = pos
+                    src_x = int(px % pat_w)
+                    src_y = int(py % pat_h)
+                    self.image = pygame.Surface((target_w, target_h))
+                    self.image.blit(tex_scaled, (0, 0), (src_x, src_y, target_w, target_h))
+                else:
+                    # Mode normal : étirer pour remplir la zone
+                    self.image = pygame.transform.scale(tex, (target_w, target_h))
+            except Exception:
+                self.image = pygame.Surface(data['size'])
+                self.image.fill(data['color'])
+                pygame.draw.rect(self.image, (30, 30, 30), (0, 0, target_w, target_h), 3)
+        else:
+            self.image = pygame.Surface(data['size'])
+            self.image.fill(data['color'])
+            pygame.draw.rect(self.image, (30, 30, 30), (0, 0, target_w, target_h), 3)
         self.rect = self.image.get_rect(topleft=pos)
         self.name = data['name']
 
@@ -37,13 +91,31 @@ class Hub:
         self.npc_sprites = pygame.sprite.Group() 
         self.hub_obstacles = pygame.sprite.Group()
 
+        # --- TEXTURE HERBE (fond) ---
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        grass_path = os.path.join(base_path, 'assets', 'floor_assets', 'grass.jpg')
+        try:
+            self.grass_tile = pygame.image.load(grass_path).convert()
+            self.grass_tile = pygame.transform.scale(self.grass_tile, (320, 320))
+        except Exception:
+            self.grass_tile = None
+
+        # --- TEXTURE CHEMIN (rond-point + route) ---
+        dirt_path = os.path.join(base_path, 'assets', 'floor_assets', 'dirt_path.jpg')
+        try:
+            self.dirt_tile = pygame.image.load(dirt_path).convert()
+            # La texture représente 5x5 tiles de 64px -> 320x320
+            self.dirt_tile = pygame.transform.scale(self.dirt_tile, (320, 320))
+        except Exception:
+            self.dirt_tile = None
+
         # --- LAYOUT UI (CONSTANTES) ---
         self.panel_height = 180 
         self.panel_top = HEIGHT - self.panel_height
         self.buttons_y = HEIGHT - 90 
         
         # --- MENUS BATIMENTS ---
-        self.active_menu = None # 'forge', 'shop', 'altar', etc. ou None
+        self.active_menu = None # 'forge', 'shop', 'bank', 'library' ou None
         self.menu_buttons = []  # Liste des boutons du menu actif
         self.menu_rect = pygame.Rect(0, 0, 400, 300)
         self.menu_rect.center = (WIDTH//2, HEIGHT//2)
@@ -208,24 +280,16 @@ class Hub:
             })
         elif b_type == 'library':
             self.menu_buttons.append({
-                'text': f"Étudier: +25 XP ({PRICES['buy_xp']} Or)",
-                'action': 'buy_xp',
+                'text': f"Étudier: +{PRICES['study_xp_gain']} XP ({PRICES['study_gold']} Or + {PRICES['study_iron']} Fer)",
+                'action': 'study',
                 'rect': pygame.Rect(0, 0, 350, 40),
                 'pos': (cx, start_y)
             })
-        elif b_type == 'altar':
             self.menu_buttons.append({
-                'text': f"Prier: +10 Max PV ({PRICES['pray_cost_xp']} XP)",
-                'action': 'pray_hp',
+                'text': f"Recherche: +{PRICES['research_xp_gain']} XP ({PRICES['research_gold']} Or + {PRICES['research_iron']} Fer)",
+                'action': 'research',
                 'rect': pygame.Rect(0, 0, 350, 40),
-                'pos': (cx, start_y)
-            })
-        elif b_type == 'statue':
-            self.menu_buttons.append({
-                'text': f"Sacrifier {PRICES['sacrifice_hp']} PV (+{PRICES['sacrifice_gain']} Or)",
-                'action': 'sacrifice',
-                'rect': pygame.Rect(0, 0, 350, 40),
-                'pos': (cx, start_y)
+                'pos': (cx, start_y + gap)
             })
         
         # Bouton fermer commun
@@ -240,7 +304,14 @@ class Hub:
             btn['rect'].center = btn['pos']
 
     def draw(self):
-        self.display_surface.fill((34, 139, 34))
+        # Fond : tiler la texture d'herbe au lieu d'un aplat vert
+        if self.grass_tile:
+            tile_w, tile_h = self.grass_tile.get_size()
+            for x in range(0, WIDTH, tile_w):
+                for y in range(0, HEIGHT, tile_h):
+                    self.display_surface.blit(self.grass_tile, (x, y))
+        else:
+            self.display_surface.fill((34, 139, 34))
         self.draw_environment()
         for sprite in self.path_sprites: self.display_surface.blit(sprite.image, sprite.rect)
         if not self.build_mode_active and not self.paused_ui_active() and not self.active_menu: self.npc_sprites.update()
@@ -382,31 +453,27 @@ class Hub:
                             else: print("Pas assez d'or !")
                         else: print("Points de vie au maximum.")
                         
-                    elif action == 'buy_xp':
-                        if player.inventory['gold'] >= PRICES['buy_xp']:
-                            player.inventory['gold'] -= PRICES['buy_xp']
-                            player.inventory['xp'] += 25
-                            print("Connaissance acquise !")
+                    elif action == 'study':
+                        cost_g = PRICES['study_gold']
+                        cost_i = PRICES['study_iron']
+                        if player.inventory['gold'] >= cost_g and player.inventory['iron'] >= cost_i:
+                            player.inventory['gold'] -= cost_g
+                            player.inventory['iron'] -= cost_i
+                            player.inventory['xp'] += PRICES['study_xp_gain']
+                            print(f"Connaissance acquise ! +{PRICES['study_xp_gain']} XP")
                             return "save"
-                        else: print("Pas assez d'or !")
+                        else: print("Pas assez de ressources !")
                         
-                    elif action == 'pray_hp':
-                        if player.inventory['xp'] >= PRICES['pray_cost_xp']:
-                            player.inventory['xp'] -= PRICES['pray_cost_xp']
-                            player.max_health += 10
-                            player.health = player.max_health
-                            print("Prières entendues : Max HP +10")
+                    elif action == 'research':
+                        cost_g = PRICES['research_gold']
+                        cost_i = PRICES['research_iron']
+                        if player.inventory['gold'] >= cost_g and player.inventory['iron'] >= cost_i:
+                            player.inventory['gold'] -= cost_g
+                            player.inventory['iron'] -= cost_i
+                            player.inventory['xp'] += PRICES['research_xp_gain']
+                            print(f"Recherche terminée ! +{PRICES['research_xp_gain']} XP")
                             return "save"
-                        else: print("Pas assez d'XP !")
-                        
-                    elif action == 'sacrifice':
-                        if player.max_health > 20: # On ne peut pas se suicider
-                            player.max_health -= PRICES['sacrifice_hp']
-                            player.health = min(player.health, player.max_health)
-                            player.inventory['gold'] += PRICES['sacrifice_gain']
-                            print("Sacrifice accepté.")
-                            return "save"
-                        else: print("Santé trop basse pour sacrifier !")
+                        else: print("Pas assez de ressources !")
                         
             # Si on clique hors du menu, on le ferme
             if not self.menu_rect.collidepoint(pos):
@@ -477,7 +544,7 @@ class Hub:
                     print(f"Clic sur {b_sprite.name}")
                     # On vérifie si ce batiment a un menu
                     # b_sprite.type contient la clé (ex: 'forge')
-                    if b_sprite.type in ['forge', 'shop', 'altar', 'statue', 'bank', 'library']:
+                    if b_sprite.type in ['forge', 'shop', 'bank', 'library']:
                         self.open_building_menu(b_sprite.type)
                         return None
 
@@ -508,8 +575,50 @@ class Hub:
 
     def draw_environment(self):
         path_color = (160, 130, 90)
-        pygame.draw.circle(self.display_surface, path_color, (self.center_x, self.center_y), 100)
-        pygame.draw.line(self.display_surface, path_color, (self.center_x, self.center_y), self.gate_rect.center, 60)
+        radius = 100
+        cx, cy = self.center_x, self.center_y
+        
+        # --- Rond-point texturé ---
+        if self.dirt_tile:
+            circle_size = radius * 2
+            circle_surf = pygame.Surface((circle_size, circle_size), pygame.SRCALPHA)
+            tile_w, tile_h = self.dirt_tile.get_size()
+            
+            # Alignement de la texture globale sur le monde
+            wx = cx - radius
+            wy = cy - radius
+            offset_x = int(wx % tile_w)
+            offset_y = int(wy % tile_h)
+            
+            for tx in range(-offset_x, circle_size, tile_w):
+                for ty in range(-offset_y, circle_size, tile_h):
+                    circle_surf.blit(self.dirt_tile, (tx, ty))
+                    
+            # Appliquer un masque circulaire
+            mask_surf = pygame.Surface((circle_size, circle_size), pygame.SRCALPHA)
+            pygame.draw.circle(mask_surf, (255, 255, 255, 255), (radius, radius), radius)
+            circle_surf.blit(mask_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+            self.display_surface.blit(circle_surf, (wx, wy))
+            
+            # --- Route vers la porte (texturée) ---
+            road_width = 60
+            gate_cx, gate_cy = self.gate_rect.center
+            road_height = gate_cy - cy
+            if road_height > 0:
+                road_surf = pygame.Surface((road_width, road_height), pygame.SRCALPHA)
+                wx_road = cx - road_width // 2
+                wy_road = cy
+                r_offset_x = int(wx_road % tile_w)
+                r_offset_y = int(wy_road % tile_h)
+                
+                for tx in range(-r_offset_x, road_width, tile_w):
+                    for ty in range(-r_offset_y, road_height, tile_h):
+                        road_surf.blit(self.dirt_tile, (tx, ty))
+                self.display_surface.blit(road_surf, (wx_road, wy_road))
+        else:
+            pygame.draw.circle(self.display_surface, path_color, (cx, cy), radius)
+            pygame.draw.line(self.display_surface, path_color, (cx, cy), self.gate_rect.center, 60)
+        
         pygame.draw.rect(self.display_surface, (65, 105, 225), self.tent_rect, border_radius=10)
         self.draw_text("Repos", self.tent_rect.center, size=15)
         pygame.draw.circle(self.display_surface, (255, 69, 0), self.campfire_rect.center, 20)

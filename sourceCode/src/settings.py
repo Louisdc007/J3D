@@ -24,10 +24,12 @@ PRICES = {
     'buy_potion': 50,     # Prix d'une potion (50 Or)
     'upgrade_damage': 150,# Coût amélioration dégats (150 Or)
     'upgrade_iron_cost': 30, # Coût en fer pour l'amélioration
-    'pray_cost_xp': 150,  # XP requise pour prier (Autel)
-    'sacrifice_hp': 20,   # PV sacrifiés à la statue
-    'sacrifice_gain': 40, # Or gagné par sacrifice
-    'buy_xp': 50          # Or requis pour acheter 25 XP
+    'study_gold': 30,     # Or requis pour étudier (Bibliothèque)
+    'study_iron': 15,     # Fer requis pour étudier
+    'study_xp_gain': 25,  # XP gagnée en étudiant
+    'research_gold': 80,  # Or requis pour recherche approfondie
+    'research_iron': 40,  # Fer requis pour recherche approfondie
+    'research_xp_gain': 75 # XP gagnée en recherche approfondie
 }
 
 # --- CONFIGURATION DES MONSTRES ---
@@ -69,20 +71,8 @@ BUILDING_DATA = {
     'library': {
         'name': 'Bibliothèque',
         'cost_gold': 50, 'cost_iron': 100, 'cost_npc': 3,
-        'desc': 'Acheter XP (WIP)',
+        'desc': 'Échanger Or et Fer contre XP',
         'color': (0, 139, 139), 'size': (128, 128)
-    },
-    'altar': {
-        'name': 'Autel',
-        'cost_gold': 40, 'cost_iron': 20, 'cost_npc': 1,
-        'desc': 'Dépenser XP > Max PV',
-        'color': (150, 50, 150), 'size': (64, 128)
-    },
-    'statue': {
-        'name': 'Maudit',
-        'cost_gold': 100, 'cost_iron': 50, 'cost_npc': 1,
-        'desc': 'Sacrifice PV > Or',
-        'color': (75, 0, 130), 'size': (64, 64)
     },
     'path': {
         'name': 'Chemin',
