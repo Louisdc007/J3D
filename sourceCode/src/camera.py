@@ -17,6 +17,15 @@ class CameraGroup(pygame.sprite.Group):
         self._wall_shadow = pygame.Surface((TILE_SIZE, 20), pygame.SRCALPHA)
         self._wall_shadow.fill((0, 0, 0, 60))
 
+        # Standard Enemy shadow
+        self._enemy_shadow_standard = pygame.Surface((80, 26), pygame.SRCALPHA)
+        pygame.draw.ellipse(self._enemy_shadow_standard, (0, 0, 0, 90), self._enemy_shadow_standard.get_rect())
+
+        # Centered Enemy shadow
+        sw_c, sh_c = int(80 / 1.5), int(26 / 1.5)
+        self._enemy_shadow_centered = pygame.Surface((sw_c, sh_c), pygame.SRCALPHA)
+        pygame.draw.ellipse(self._enemy_shadow_centered, (0, 0, 0, 90), self._enemy_shadow_centered.get_rect())
+
     def custom_draw(self, player):
         from tile import Floor, Tile
         from entities.player import Player
@@ -48,12 +57,15 @@ class CameraGroup(pygame.sprite.Group):
                     sw, sh = 52, 18
                     shadow_surf = self._player_shadow
                 else: # Enemy
-                    sw, sh = 80, 26 # Smaller, more centered shadow for the massive orcs
-                    shadow_surf = pygame.Surface((sw, sh), pygame.SRCALPHA)
-                    pygame.draw.ellipse(shadow_surf, (0, 0, 0, 90), shadow_surf.get_rect())
+                    if getattr(sprite, 'is_centered', False):
+                        sw, sh = int(80 / 1.5), int(26 / 1.5)
+                        shadow_surf = self._enemy_shadow_centered
+                    else:
+                        sw, sh = 80, 26
+                        shadow_surf = self._enemy_shadow_standard
                 
-                sx = sprite.rect.centerx - (sw // 2) - ox
-                sy = sprite.rect.bottom - (sh // 2) - oy
+                sx = sprite.hitbox.centerx - (sw // 2) - ox
+                sy = sprite.hitbox.bottom - (sh // 2) - oy
                 blit(shadow_surf, (sx, sy))
 
         # Pass 4 — everything else (walls, enemies, items, weapons…)

@@ -1,4 +1,18 @@
-import pyautogui
+import sys
+import os
+
+
+def resource_path(relative_path):
+    """Retourne le chemin absolu vers une ressource.
+    Fonctionne en mode développement ET dans un exécutable PyInstaller.
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # Mode PyInstaller : les assets sont dans le dossier temporaire _MEIPASS
+        base = sys._MEIPASS
+    else:
+        # Mode développement : les assets sont à côté du script
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, relative_path)
 
 
 WIDTH = 1280

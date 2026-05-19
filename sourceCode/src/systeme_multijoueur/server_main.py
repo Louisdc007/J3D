@@ -46,7 +46,7 @@ for y, row in enumerate(map_data):
         if col == 'x':
             obstacles.append(SharedObstacle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE, BLACK))
 
-available_monsters = ['tier1', 'tier2', 'tier3']
+available_monsters = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5']
 eid = 0
 for room in dg.rooms[1:]:
     for _ in range(random.randint(2, 4)):

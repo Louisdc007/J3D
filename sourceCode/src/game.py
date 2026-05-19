@@ -16,10 +16,10 @@ from hub import Hub
 from save_manager import SaveManager
 from intro import IntroScene
 
-base_path = os.path.dirname(os.path.abspath(__file__))
-multi_path = os.path.join(base_path, "systeme_multijoueur")
+# Ajout du module multijoueur au path (compatible PyInstaller)
+multi_path = resource_path("systeme_multijoueur")
 if multi_path not in sys.path:
-    sys.path.append(multi_path)
+    sys.path.insert(0, multi_path)
 
 from network import Network
 from game_server import GameServer
@@ -34,7 +34,7 @@ class Game:
         self.clock = pygame.time.Clock()
         
         try:
-            music_path = os.path.join(base_path, 'assets', 'greed_hub.mp3')
+            music_path = resource_path(os.path.join('assets', 'greed_hub.mp3'))
             if os.path.exists(music_path):
                 pygame.mixer.music.load(music_path)
                 pygame.mixer.music.set_volume(0.4)
@@ -104,6 +104,18 @@ class Game:
 
         self.setup_menus()
         self.load_save_if_exists()
+
+        # Force active window focus on macOS to prevent ignored initial clicks
+        if sys.platform == 'darwin':
+            try:
+                import subprocess
+                subprocess.Popen([
+                    "/usr/bin/osascript",
+                    "-e",
+                    f'tell application "System Events" to set frontmost of first process whose unix id is {os.getpid()} to true'
+                ])
+            except Exception as e:
+                print(f"Error focusing macOS window: {e}")
 
     def setup_menus(self):
         center_x = WIDTH // 2; start_y = HEIGHT // 2 - 50; gap = 80
@@ -331,6 +343,14 @@ class Game:
 
     def events(self):
         for event in pygame.event.get():
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                print(f"[EVENT DEBUG] Click at {event.pos}. State: {self.game_state}")
+                if self.game_state == 'menu':
+                    for i, btn in enumerate(self.menu_buttons):
+                        print(f"  Menu Button {i} ({btn['action']}): rect={btn['rect']}, collides={btn['rect'].collidepoint(event.pos)}")
+                elif self.game_state == 'options':
+                    for i, btn in enumerate(self.options_buttons):
+                        print(f"  Options Button {i} ({btn['action']}): rect={btn['rect']}, collides={btn['rect'].collidepoint(event.pos)}")
             if event.type == pygame.QUIT: self.clean_exit()
 
             if self.game_state == 'menu':
@@ -424,18 +444,22 @@ class Game:
                         if event.type == pygame.MOUSEBUTTONDOWN:
                             action = self.hub.check_click(event.pos, self.player)
                             if action == "build_action": self.save_all()
-                            elif action == "dungeon_random_check":
+                            elif action == "dungeon_random_check" or action == "dungeon_major_check":
+                                self.current_dungeon_type = 'major' if action == "dungeon_major_check" else 'random'
                                 ratio = self.game_time / self.full_day_duration
                                 h = int((self.morning_hour + (self.hours_in_day * ratio)) % 24)
                                 if h >= self.evening_hour or h < self.morning_hour: 
                                     self.resources_at_dungeon_start = self.player.inventory['iron']
                                     self.game_state = 'loading'
-                                else: self.hub.waiting_for_night = True; self.hub.pending_dungeon_choice = 'random'
-                            elif action in ["wait_for_night_random", "rest", "rest_at_night"]:
+                                else: self.hub.waiting_for_night = True; self.hub.pending_dungeon_choice = self.current_dungeon_type
+                            elif action in ["wait_for_night_random", "wait_for_night_major", "rest", "rest_at_night"]:
+                                if action in ["wait_for_night_random", "wait_for_night_major"]:
+                                    self.current_dungeon_type = 'major' if action == "wait_for_night_major" else 'random'
                                 self.game_time = self.evening_duration; self.transition_active = True; self.transition_timer = 0
-                                self.transition_type = 'wait_for_dungeon' if action == "wait_for_night_random" else 'night'
+                                self.transition_type = 'wait_for_dungeon' if action.startswith("wait_for_night") else 'night'
                                 self.transition_text = "La nuit tombe..."
                             elif action == "explore_at_night": 
+                                self.current_dungeon_type = self.hub.pending_dungeon_choice
                                 self.resources_at_dungeon_start = self.player.inventory['iron']
                                 self.game_state = 'loading'
                         
@@ -586,10 +610,10 @@ class Game:
         if self.game_state == 'hub' and self.game_time >= self.evening_duration: self.hub.night_arrived = True
         
         if self.game_state == 'dungeon' and self.game_time >= self.full_day_duration and not self.transition_active:
-            self.transition_active = True; self.transition_timer = 0; self.transition_duration = 3.0; self.transition_type = 'morning'; self.transition_text = "Il est l'heure de rentrer..."
+            if getattr(self, 'current_dungeon_type', 'random') != 'major':
+                self.transition_active = True; self.transition_timer = 0; self.transition_duration = 3.0; self.transition_type = 'morning'; self.transition_text = "Il est l'heure de rentrer..."
         
         if self.transition_active:
-            self.transition_timer += dt  # Consistent update for solo
             if self.transition_timer >= self.transition_duration / 2 and not self._transition_mid_triggered:
                 self._transition_mid_triggered = True
                 if self.transition_type == 'morning':
@@ -615,13 +639,36 @@ class Game:
                         self.game_time = 0
                     self.hub.night_arrived = False
                     self.save_all()
+                elif self.transition_type == 'major_victory':
+                    if self.player.artifacts >= 4:
+                        pass # Let the user read the final victory message on the black screen
+                    else:
+                        self.game_state = 'hub'
+                        self.game_time = 0
+                        self.hub.night_arrived = False
+                        self.save_all()
 
             if self.transition_timer >= self.transition_duration:
+                if self.transition_type == 'major_victory' and self.player.artifacts >= 4:
+                    self.player.artifacts = 0
+                    self.return_to_menu()
                 self.transition_active = False
                 self.transition_timer = 0
                 self._transition_mid_triggered = False
         
         if self.game_state == 'dungeon' and not self.transition_active:
+            if getattr(self, 'current_dungeon_type', 'random') == 'major' and len(self.attackable_sprites) == 0 and not getattr(self, 'major_dungeon_won', False):
+                self.major_dungeon_won = True
+                self.player.artifacts += 1
+                self.transition_active = True
+                self.transition_timer = 0
+                self.transition_duration = 4.0
+                self.transition_type = 'major_victory'
+                if self.player.artifacts >= 4:
+                    self.transition_text = "bravo vouys avez sauver le seigneur ..."
+                else:
+                    self.transition_text = f"Bravo, vous avez récupéré un artéfact... ({self.player.artifacts}/4)"
+            
             self.visible_sprites.update(dt)
             
             if self.player.current_weapon:
@@ -811,9 +858,13 @@ class Game:
                     if clone.status != pstatus:
                         clone.status = pstatus
                         clone.frame_index = 0
+                        if pstatus == 'atk':
+                            # Démarre l'animation d'attaque time-based localement
+                            # (attack_time n'est pas synchro réseau, on le capture ici)
+                            clone.attack_time = pygame.time.get_ticks()
                     clone.facing_right = pfacing
-                    clone.vulnerable = pvulnerable # Apply vulnerable state
-                    clone._is_flashing = not clone.vulnerable # Force flickering state to match remote owner
+                    clone.vulnerable = pvulnerable
+                    clone._is_flashing = not clone.vulnerable
         
         for pid in list(self.other_players.keys()):
             if pid not in active_pids: self.other_players[pid].kill(); del self.other_players[pid]
@@ -835,7 +886,10 @@ class Game:
                         enemy.pos.x += (srv_enemies[eid]['x'] - enemy.pos.x) * 0.1
                         enemy.pos.y += (srv_enemies[eid]['y'] - enemy.pos.y) * 0.1
                         enemy.hitbox.x = int(enemy.pos.x); enemy.hitbox.y = int(enemy.pos.y)
-                        enemy.rect.midbottom = enemy.hitbox.midbottom
+                        if getattr(enemy, 'is_centered', False):
+                            enemy.rect.center = enemy.hitbox.center
+                        else:
+                            enemy.rect.midbottom = enemy.hitbox.midbottom
                         
                         # Only take server's vulnerability state if WE aren't in authority window
                         enemy.vulnerable = srv_enemies[eid].get('v', True)
@@ -975,8 +1029,12 @@ class Game:
         # No automatic pickup collide here, it's handled in the main update_multi loop via reports
 
     def build_map_solo(self):
+        self.major_dungeon_won = False
         self.visible_sprites.empty(); self.obstacle_sprites.empty(); self.attackable_sprites.empty(); self.item_sprites.empty()
-        dungeon = DungeonGenerator(); map_data, player_spawn = dungeon.generate()
+        dungeon = DungeonGenerator()
+        d_type = getattr(self, 'current_dungeon_type', 'random')
+        num_rooms = 4 if d_type == 'major' else 8
+        map_data, player_spawn = dungeon.generate(num_rooms=num_rooms)
         for row_index, row in enumerate(map_data):
             for col_index, cell in enumerate(row):
                 pos = (col_index * TILE_SIZE, row_index * TILE_SIZE)
@@ -993,14 +1051,31 @@ class Game:
         self.player.vulnerable = False
         self.player.hurt_time = pygame.time.get_ticks()
         self.player.invincibility_duration = 3000  # 3 seconds of spawn protection
-        for room in dungeon.rooms[1:]:
-            available_tiers = ['tier1']
-            if self.player.level >= 3: available_tiers.append('tier2')
-            if self.player.level >= 6: available_tiers.append('tier3')
-            
-            spawn_count = random.randint(3, 5 + self.player.level)
+        base_tiers = ['tier1']
+        if self.player.level >= 3: base_tiers.append('tier2')
+        if self.player.level >= 6: base_tiers.append('tier3')
+        if self.player.level >= 10: base_tiers.append('tier4')
+        if self.player.level >= 15: base_tiers.append('tier5')
+        
+        major_monsters_left = 0
+        if getattr(self, 'current_dungeon_type', 'random') == 'major':
+            major_monsters_left = random.choice([10, 15, 20])
+            base_tiers = ['tier4', 'tier5']  # Toujours tier 4 et 5 en donjon majeur
+
+        rooms = dungeon.rooms[1:]
+        for i, room in enumerate(rooms):
+            if getattr(self, 'current_dungeon_type', 'random') == 'major':
+                if major_monsters_left <= 0: continue
+                if i == len(rooms) - 1:
+                    spawn_count = major_monsters_left
+                else:
+                    spawn_count = random.randint(1, min(6, major_monsters_left))
+                major_monsters_left -= spawn_count
+            else:
+                spawn_count = random.randint(3, min(10, 5 + self.player.level // 5))
+                
             for _ in range(spawn_count): 
-                chosen_tier = random.choice(available_tiers)
+                chosen_tier = random.choice(base_tiers)
                 offset_x = random.randint(-40, 40)
                 offset_y = random.randint(-40, 40)
                 Enemy([self.visible_sprites, self.attackable_sprites], (room.centerx * TILE_SIZE + offset_x, room.centery * TILE_SIZE + offset_y), self.obstacle_sprites, chosen_tier)
@@ -1050,6 +1125,11 @@ class Game:
         
         elif self.game_state == 'dungeon':
             self.screen.fill('black'); self.visible_sprites.custom_draw(self.player); self.ui.display(self.player, self.game_time, self.full_day_duration, self.morning_hour)
+            if getattr(self, 'current_dungeon_type', 'random') == 'major':
+                rem = len(self.attackable_sprites)
+                color = (255, 50, 50) if rem <= 3 else (255, 255, 255)
+                text = pygame.font.Font(None, 36).render(f"Monstres restants : {rem}", True, color)
+                self.screen.blit(text, (WIDTH // 2 - text.get_width() // 2, 80))
             if self.is_multiplayer:
                 if self.multi_state == 'upgrade': self.draw_multi_upgrade()
                 elif self.multi_state == 'rescue': self.draw_multi_rescue()
@@ -1076,7 +1156,9 @@ class Game:
         title = self.title_font.render("LOBBY", True, (255, 255, 255))
         self.screen.blit(title, title.get_rect(center=(WIDTH//2, 80)))
         primary_ip = Network.get_primary_ip()
-        ip_txt = pygame.font.Font(None, 50).render(f"IP SERVEUR : {primary_ip}", True, (100, 255, 100))
+        # Récupère le port réel du serveur (utile pour le debug)
+        server_port = getattr(self.game_server, 'port', 55555) if self.game_server else '???'
+        ip_txt = pygame.font.Font(None, 50).render(f"IP : {primary_ip}   PORT : {server_port}", True, (100, 255, 100))
         self.screen.blit(ip_txt, ip_txt.get_rect(center=(WIDTH//2, 180)))
         
         info_txt = pygame.font.Font(None, 24).render("Les autres joueurs doivent entrer cette IP pour rejoindre", True, (180, 180, 180))

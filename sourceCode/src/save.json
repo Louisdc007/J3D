@@ -1,13 +1,14 @@
 {
     "player": {
-        "level": 1,
-        "current_health": 50,
-        "max_health": 50,
-        "xp": 0,
-        "xp_to_next": 100,
-        "gold": 99730,
-        "iron": 9526,
-        "attack_damage": 5
+        "level": 106,
+        "current_health": 4930,
+        "max_health": 5030,
+        "xp": 748,
+        "xp_to_next": 1135,
+        "gold": 4,
+        "iron": 9,
+        "attack_damage": 5006,
+        "artifacts": 0
     },
     "hub": {
         "buildings": [
@@ -310,6 +311,21 @@
                 "type": "path",
                 "x": 448,
                 "y": 320
+            },
+            {
+                "type": "shop",
+                "x": 736,
+                "y": 224
+            },
+            {
+                "type": "tree",
+                "x": 1088,
+                "y": 320
+            },
+            {
+                "type": "flower",
+                "x": 864,
+                "y": 416
             }
         ],
         "banked_iron": 0,

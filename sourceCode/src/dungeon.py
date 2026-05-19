@@ -50,9 +50,8 @@ class DungeonGenerator:
             x = max(1, min(x, self.width - 2))
             y = max(1, min(y, self.height - 2))
 
-    def generate(self):
-
-        for _ in range(8):
+    def generate(self, num_rooms=8):
+        for _ in range(num_rooms):
             w = random.randint(6, 10)
             h = random.randint(6, 10)
             

@@ -32,12 +32,11 @@ class Building(pygame.sprite.Sprite):
         # Charger la texture si disponible, sinon rectangle de couleur
         target_w, target_h = data['size']
         if type in BUILDING_TEXTURES:
-            base_path = os.path.dirname(os.path.abspath(__file__))
             tex_entry = BUILDING_TEXTURES[type]
             if isinstance(tex_entry, tuple):
-                tex_path = os.path.join(base_path, 'assets', tex_entry[0], tex_entry[1])
+                tex_path = resource_path(os.path.join('assets', tex_entry[0], tex_entry[1]))
             else:
-                tex_path = os.path.join(base_path, 'assets', 'building', tex_entry)
+                tex_path = resource_path(os.path.join('assets', 'building', tex_entry))
             try:
                 tex = pygame.image.load(tex_path).convert()
                 if type in BUILDING_CROP_MODE:
@@ -92,8 +91,7 @@ class Hub:
         self.hub_obstacles = pygame.sprite.Group()
 
         # --- TEXTURE HERBE (fond) ---
-        base_path = os.path.dirname(os.path.abspath(__file__))
-        grass_path = os.path.join(base_path, 'assets', 'floor_assets', 'grass.jpg')
+        grass_path = resource_path(os.path.join('assets', 'floor_assets', 'grass.jpg'))
         try:
             self.grass_tile = pygame.image.load(grass_path).convert()
             self.grass_tile = pygame.transform.scale(self.grass_tile, (320, 320))
@@ -101,7 +99,7 @@ class Hub:
             self.grass_tile = None
 
         # --- TEXTURE CHEMIN (rond-point + route) ---
-        dirt_path = os.path.join(base_path, 'assets', 'floor_assets', 'dirt_path.jpg')
+        dirt_path = resource_path(os.path.join('assets', 'floor_assets', 'dirt_path.jpg'))
         try:
             self.dirt_tile = pygame.image.load(dirt_path).convert()
             # La texture représente 5x5 tiles de 64px -> 320x320
@@ -119,6 +117,9 @@ class Hub:
         self.menu_buttons = []  # Liste des boutons du menu actif
         self.menu_rect = pygame.Rect(0, 0, 400, 300)
         self.menu_rect.center = (WIDTH//2, HEIGHT//2)
+        self.state_lock_time = 0
+        self.warning_msg = None
+        self.warning_timer = 0
         
         # --- ZONES FIXES ---
         self.campfire_rect = pygame.Rect(0, 0, 60, 60)
@@ -221,6 +222,7 @@ class Hub:
         """Ouvre le menu spécifique à un type de batiment"""
         self.active_menu = b_type
         self.menu_buttons = []
+        self.state_lock_time = pygame.time.get_ticks() + 300
         
         cx = self.menu_rect.centerx
         start_y = self.menu_rect.top + 80
@@ -340,6 +342,22 @@ class Hub:
                 pygame.draw.rect(self.display_surface, (255, 255, 255), self.btn_open_build, 2, border_radius=5)
                 self.draw_text("CONSTRUIRE", self.btn_open_build.center)
 
+        # Affichage des alertes à l'écran
+        if self.warning_msg and pygame.time.get_ticks() < self.warning_timer:
+            self.draw_warning_banner()
+
+    def show_warning(self, msg):
+        self.warning_msg = msg
+        self.warning_timer = pygame.time.get_ticks() + 2000
+
+    def draw_warning_banner(self):
+        txt_surf = pygame.font.Font(UI_FONT, 20).render(self.warning_msg, True, (255, 100, 100))
+        txt_rect = txt_surf.get_rect(center=(WIDTH // 2, HEIGHT - 120 if self.active_menu else HEIGHT // 2 + 180))
+        bg_rect = txt_rect.inflate(30, 15)
+        pygame.draw.rect(self.display_surface, (30, 20, 20), bg_rect, border_radius=5)
+        pygame.draw.rect(self.display_surface, (255, 100, 100), bg_rect, 2, border_radius=5)
+        self.display_surface.blit(txt_surf, txt_rect)
+
     def draw_active_menu(self):
         # Fond sombre flou
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -371,11 +389,21 @@ class Hub:
         return self.night_arrived or self.waiting_for_night or self.menu_state is not None or self.active_menu is not None
 
     def check_click(self, pos, player):
+        now = pygame.time.get_ticks()
+        if now < self.state_lock_time:
+            print(f"  [CLICK LOCKED] Click ignored because lock timer active until {self.state_lock_time}")
+            return None
+        
+        print(f"[HUB CLICK] pos={pos}, active_menu={self.active_menu}, build_mode={self.build_mode_active}")
         # 1. Priorité absolue : Menu Bâtiment Actif
         if self.active_menu:
+            print(f"  Checking active menu buttons...")
+            for i, btn in enumerate(self.menu_buttons):
+                print(f"    Menu Button {i} ({btn['action']}): rect={btn['rect']}, collides={btn['rect'].collidepoint(pos)}")
             for btn in self.menu_buttons:
                 if btn['rect'].collidepoint(pos):
                     action = btn['action']
+                    self.state_lock_time = pygame.time.get_ticks() + 300 # Lock click on any active menu button interaction
                     
                     if action == 'close_menu':
                         self.active_menu = None
@@ -389,7 +417,9 @@ class Hub:
                             player.attack_damage += 2 # Gain
                             print("Arme améliorée !")
                             return "save" # On demande une save
-                        else: print("Pas assez de ressources !")
+                        else:
+                            self.show_warning("Pas assez de ressources !")
+                            print("Pas assez de ressources !")
                         
                     elif action == 'deposit_iron':
                         if player.inventory['iron'] >= 50:
@@ -398,7 +428,9 @@ class Hub:
                             print("50 Fer déposés !")
                             self.open_building_menu('bank') # Refresh menu text
                             return "save"
-                        else: print("Pas assez de fer !")
+                        else:
+                            self.show_warning("Pas assez de fer !")
+                            print("Pas assez de fer !")
                         
                     elif action == 'withdraw_iron':
                         if self.banked_iron >= 50:
@@ -407,7 +439,9 @@ class Hub:
                             print("50 Fer retirés !")
                             self.open_building_menu('bank') # Refresh menu text
                             return "save"
-                        else: print("Pas assez de fer en banque !")
+                        else:
+                            self.show_warning("Pas assez de fer en banque !")
+                            print("Pas assez de fer en banque !")
                         
                     elif action == 'deposit_gold':
                         if player.inventory['gold'] >= 50:
@@ -416,7 +450,9 @@ class Hub:
                             print("50 Or déposés !")
                             self.open_building_menu('bank') # Refresh menu text
                             return "save"
-                        else: print("Pas assez d'or !")
+                        else:
+                            self.show_warning("Pas assez d'or !")
+                            print("Pas assez d'or !")
                         
                     elif action == 'withdraw_gold':
                         if self.banked_gold >= 50:
@@ -425,7 +461,9 @@ class Hub:
                             print("50 Or retirés !")
                             self.open_building_menu('bank') # Refresh menu text
                             return "save"
-                        else: print("Pas assez d'or en banque !")
+                        else:
+                            self.show_warning("Pas assez d'or en banque !")
+                            print("Pas assez d'or en banque !")
                         
                     elif action == 'sell_iron_20':
                         if player.inventory['iron'] >= 20:
@@ -433,7 +471,9 @@ class Hub:
                             player.inventory['gold'] += PRICES['sell_iron']
                             print(f"20 Fer vendu pour {PRICES['sell_iron']} Or !")
                             return "save"
-                        else: print("Pas assez de fer !")
+                        else:
+                            self.show_warning("Pas assez de fer !")
+                            print("Pas assez de fer !")
                         
                     elif action == 'buy_iron_20':
                         if player.inventory['gold'] >= PRICES['buy_iron']:
@@ -441,7 +481,9 @@ class Hub:
                             player.inventory['iron'] += 20
                             print(f"20 Fer acheté pour {PRICES['buy_iron']} Or !")
                             return "save"
-                        else: print("Pas assez d'or !")
+                        else:
+                            self.show_warning("Pas assez d'or !")
+                            print("Pas assez d'or !")
                         
                     elif action == 'buy_potion':
                         if player.health < player.max_health:
@@ -450,8 +492,12 @@ class Hub:
                                 player.health = min(player.health + 50, player.max_health)
                                 print("Potion achetée et bue !")
                                 return "save"
-                            else: print("Pas assez d'or !")
-                        else: print("Points de vie au maximum.")
+                            else:
+                                self.show_warning("Pas assez d'or !")
+                                print("Pas assez d'or !")
+                        else:
+                            self.show_warning("Points de vie au maximum.")
+                            print("Points de vie au maximum.")
                         
                     elif action == 'study':
                         cost_g = PRICES['study_gold']
@@ -462,7 +508,9 @@ class Hub:
                             player.inventory['xp'] += PRICES['study_xp_gain']
                             print(f"Connaissance acquise ! +{PRICES['study_xp_gain']} XP")
                             return "save"
-                        else: print("Pas assez de ressources !")
+                        else:
+                            self.show_warning("Pas assez de ressources !")
+                            print("Pas assez de ressources !")
                         
                     elif action == 'research':
                         cost_g = PRICES['research_gold']
@@ -473,39 +521,63 @@ class Hub:
                             player.inventory['xp'] += PRICES['research_xp_gain']
                             print(f"Recherche terminée ! +{PRICES['research_xp_gain']} XP")
                             return "save"
-                        else: print("Pas assez de ressources !")
+                        else:
+                            self.show_warning("Pas assez de ressources !")
+                            print("Pas assez de ressources !")
                         
             # Si on clique hors du menu, on le ferme
             if not self.menu_rect.collidepoint(pos):
                 self.active_menu = None
+                self.state_lock_time = pygame.time.get_ticks() + 300
             return None
 
         # 2. Menus contextuels (Nuit, Donjon...)
         if self.night_arrived:
             if self.btn_rest_night.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
                 self.night_arrived = False
                 player.health = player.max_health
                 self.apply_daily_tax()
                 return "rest_at_night"
             elif self.btn_explore_night.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
                 self.night_arrived = False
                 return "explore_at_night"
             return None
         
         if self.waiting_for_night:
-            if self.btn_wait_night.collidepoint(pos): self.waiting_for_night = False; return f"wait_for_night_{self.pending_dungeon_choice}"
-            elif self.btn_go_now.collidepoint(pos): self.waiting_for_night = False; self.pending_dungeon_choice = None; return None
+            if self.btn_wait_night.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.waiting_for_night = False
+                return f"wait_for_night_{self.pending_dungeon_choice}"
+            elif self.btn_go_now.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.waiting_for_night = False
+                self.pending_dungeon_choice = None
+                return None
             return None
 
         if self.menu_state == 'dungeon':
-            if self.btn_random.collidepoint(pos): self.menu_state = None; return "dungeon_random_check"
-            elif self.btn_main_dungeons.collidepoint(pos): self.menu_state = None; return None
-            else: self.menu_state = None; return None
+            if self.btn_random.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.menu_state = None
+                return "dungeon_random_check"
+            elif self.btn_main_dungeons.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.menu_state = None
+                return "dungeon_major_check"
+            else:
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.menu_state = None
+                return None
         
         # 3. Mode Construction
         if self.build_mode_active:
             for btn in self.build_buttons:
-                if btn['rect'].collidepoint(pos): self.selected_blueprint = btn['key']; return None
+                if btn['rect'].collidepoint(pos):
+                    self.state_lock_time = pygame.time.get_ticks() + 300
+                    self.selected_blueprint = btn['key']
+                    return None
             if self.selected_blueprint and pos[1] < self.panel_top:
                 data = BUILDING_DATA[self.selected_blueprint]
                 w, h = data['size']
@@ -530,16 +602,26 @@ class Hub:
                                 self.built_buildings.append({'type': self.selected_blueprint, 'x': snapped_pos[0], 'y': snapped_pos[1]})
                                 if not is_walkable: self.spawn_npcs(player)
                                 print(f"Batiment {data['name']} construit !"); return "build_action"
-                            else: print("Pas assez de ressources !")
-                        else: print("Pas assez d'ouvriers libres !")
-                    else: print("Limite atteinte !")
-                else: print("Placement invalide !")
+                            else:
+                                self.show_warning("Pas assez de ressources !")
+                                print("Pas assez de ressources !")
+                        else:
+                            self.show_warning("Pas assez d'ouvriers libres !")
+                            print("Pas assez d'ouvriers libres !")
+                    else:
+                        self.show_warning("Limite de batiments atteinte !")
+                        print("Limite atteinte !")
+                else:
+                    self.show_warning("Placement invalide !")
+                    print("Placement invalide !")
             return None 
 
         # 4. Mode Normal (Interaction Batiments)
         else:
+            print("  Checking normal interactions...")
             # On vérifie si on clique sur un batiment construit
             for b_sprite in self.building_sprites:
+                print(f"    Building {b_sprite.name} (type={b_sprite.type}): rect={b_sprite.rect}, collides={b_sprite.rect.collidepoint(pos)}")
                 if b_sprite.rect.collidepoint(pos):
                     print(f"Clic sur {b_sprite.name}")
                     # On vérifie si ce batiment a un menu
@@ -549,12 +631,23 @@ class Hub:
                         return None
 
             # Autres intéractions
-            if self.gate_rect.collidepoint(pos): self.menu_state = 'dungeon'; return None
+            print(f"    Gate: rect={self.gate_rect}, collides={self.gate_rect.collidepoint(pos)}")
+            print(f"    Tent: rect={self.tent_rect}, collides={self.tent_rect.collidepoint(pos)}")
+            print(f"    Build Button: rect={self.btn_open_build}, collides={self.btn_open_build.collidepoint(pos)}")
+            if self.gate_rect.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.menu_state = 'dungeon'
+                return None
             if self.tent_rect.collidepoint(pos): 
+                self.state_lock_time = pygame.time.get_ticks() + 300
                 player.health = player.max_health
                 self.apply_daily_tax()
                 return "rest"
-            if self.btn_open_build.collidepoint(pos): self.build_mode_active = True; self.selected_blueprint = None; return None
+            if self.btn_open_build.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.build_mode_active = True
+                self.selected_blueprint = None
+                return None
         return None
 
     def apply_daily_tax(self):
