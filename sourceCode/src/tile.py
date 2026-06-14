@@ -18,7 +18,7 @@ class Tile(pygame.sprite.Sprite):
 
     @classmethod
     def _load_wall_images(cls):
-        wall_dir = os.path.join(os.path.dirname(__file__), 'assets', 'wall')
+        wall_dir = resource_path(os.path.join('assets', 'wall'))
         # (filename, weight per tile) — mossy wall tiles appear ~25% of the time overall
         variants = [('brick wall.png', 3), ('brick wall moss.png', 1)]
         for filename, weight in variants:
@@ -72,7 +72,7 @@ class Floor(pygame.sprite.Sprite):
     @classmethod
     def load_images(cls):
         cls._images_loaded = True
-        floor_assets_path = os.path.join(os.path.dirname(__file__), 'assets', 'floor_assets')
+        floor_assets_path = resource_path(os.path.join('assets', 'floor_assets'))
         if not os.path.exists(floor_assets_path):
             return
         

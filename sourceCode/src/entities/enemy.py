@@ -7,11 +7,19 @@ import os
 # Sprite folder per tier (None = fallback solid color)
 TIER_SPRITE_DIRS = {
     'tier1': 'orc_frames_clean',
+    'tier2': 'toimp/Mushroom_frames',
+    'tier3': 'toimp/Fly_frames',
+    'tier4': 'toimp/Skeleton_frames',
+    'tier5': 'toimp/BigGoblin_frames',
 }
 
 # Visual size per tier (can vary)
 TIER_VISUAL_SIZES = {
     'tier1': (320, 320),
+    'tier2': (225, 225),
+    'tier3': (225, 225),
+    'tier4': (225, 225),
+    'tier5': (225, 225),
 }
 
 # Default / Fallback size
@@ -54,7 +62,16 @@ class Enemy(pygame.sprite.Sprite):
         # hitbox is the physical boundary (STRICTLY 64x64 / 1 tile as requested)
         from settings import TILE_SIZE
         self.hitbox = pygame.Rect(0, 0, TILE_SIZE, TILE_SIZE)
-        self.hitbox.midbottom = self.rect.midbottom
+        
+        self.is_centered = (tier != 'tier1')
+        self.is_flying = (tier == 'tier3')
+        if self.is_centered:
+            if self.is_flying:
+                self.hitbox.midbottom = self.rect.midbottom
+            else:
+                self.hitbox.center = self.rect.center
+        else:
+            self.hitbox.midbottom = self.rect.midbottom
 
         self.vulnerable = True
         self.hit_time = 0
@@ -84,23 +101,22 @@ class Enemy(pygame.sprite.Sprite):
             cls._anim_cache[tier] = anims
             return anims
 
-        base = os.path.join(os.path.dirname(__file__), '..', 'assets', sprite_dir_name)
+        base = resource_path(os.path.join('assets', sprite_dir_name))
         if not os.path.isdir(base):
             cls._anim_cache[tier] = anims
             return anims
 
-        # Map our anim keys to the filename prefixes in the folder
+        # 1. Fallback / legacy prefix logic (files directly in base folder)
         prefix_map = {
             'idle': 'idle_',
             'walk': 'walk_',
             'atk':  'atk_',
             'ded':  'ded',
         }
-
         for key, prefix in prefix_map.items():
             files = sorted([
                 f for f in os.listdir(base)
-                if f.lower().startswith(prefix.lower()) and f.lower().endswith('.png')
+                if os.path.isfile(os.path.join(base, f)) and f.lower().startswith(prefix.lower()) and f.lower().endswith('.png')
             ])
             for fname in files:
                 try:
@@ -109,6 +125,44 @@ class Enemy(pygame.sprite.Sprite):
                     anims[key].append(img)
                 except Exception as e:
                     print(f"[Enemy] Could not load {fname}: {e}")
+
+        # 2. Subdirectory logic (for toimp assets)
+        folder_keywords = {
+            'idle': ['idle', 'flight'],
+            'walk': ['walk', 'run', 'flight', 'shield'], # fallback for walk
+            'atk':  ['attack', 'atk'],
+            'ded':  ['death', 'ded']
+        }
+        
+        subdirs = sorted([d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))])
+        for d in subdirs:
+            d_lower = d.lower()
+            target_keys = []
+            for k, kw_list in folder_keywords.items():
+                if any(kw in d_lower for kw in kw_list):
+                    target_keys.append(k)
+            
+            if target_keys:
+                d_path = os.path.join(base, d)
+                files = sorted([f for f in os.listdir(d_path) if f.lower().endswith('.png')])
+                loaded_imgs = []
+                for fname in files:
+                    try:
+                        img = pygame.image.load(os.path.join(d_path, fname)).convert_alpha()
+                        img = pygame.transform.scale(img, visual_size)
+                        loaded_imgs.append(img)
+                    except Exception as e:
+                        print(f"[Enemy] Could not load {fname}: {e}")
+                
+                for k in target_keys:
+                    if len(anims[k]) == 0:
+                        anims[k].extend(loaded_imgs)
+
+        # 3. Fallbacks if animations are missing
+        if not anims['walk'] and anims['idle']:
+            anims['walk'] = anims['idle'].copy()
+        if not anims['idle'] and anims['walk']:
+            anims['idle'] = anims['walk'].copy()
 
         cls._anim_cache[tier] = anims
         return anims
@@ -242,8 +296,14 @@ class Enemy(pygame.sprite.Sprite):
         self.hitbox.y = int(self.pos.y)
         self.collision('vertical', dy)
 
-        # Sync the visual rect with the physical hitbox midbottom
-        self.rect.midbottom = self.hitbox.midbottom
+        # Sync the visual rect with the physical hitbox
+        if getattr(self, 'is_centered', False):
+            if getattr(self, 'is_flying', False):
+                self.rect.midbottom = self.hitbox.midbottom
+            else:
+                self.rect.center = self.hitbox.center
+        else:
+            self.rect.midbottom = self.hitbox.midbottom
 
     # ------------------------------------------------------------------
     # Main update (called each frame by sprite group)

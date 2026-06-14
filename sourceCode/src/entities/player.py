@@ -61,11 +61,12 @@ class Player(pygame.sprite.Sprite):
         self.xp_to_next_level = 100 
         
         self.attack_damage = 5
+        self.artifacts = 0
         self.inventory = {'gold': 0, 'iron': 0, 'xp': 0}
 
     def import_player_assets(self):
         self.animations = {'idle': [], 'walk': [], 'atk': [], 'ded': []}
-        mc_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'mc_frames')
+        mc_path = resource_path(os.path.join('assets', 'mc_frames'))
         
         if os.path.exists(mc_path):
             for animation in self.animations.keys():
@@ -124,19 +125,25 @@ class Player(pygame.sprite.Sprite):
     def animate(self):
         animation = self.animations[self.status]
 
-        # Use a slower speed for death animation so it feels dramatic
-        speed = 0.07 if self.status == 'ded' else self.animation_speed
-        self.frame_index += speed
-        if self.frame_index >= len(animation):
-            if self.status in ['atk', 'ded']:
-                # Hold last frame — mark death anim complete
+        if self.status == 'atk' and len(animation) > 1:
+            # Animation basée sur le temps réel : toutes les frames sont toujours jouées
+            # en exactement attack_cooldown ms, peu importe le FPS ou le lag
+            elapsed = pygame.time.get_ticks() - self.attack_time
+            progress = min(elapsed / self.attack_cooldown, 1.0)
+            self.frame_index = progress * (len(animation) - 1)
+        elif self.status == 'ded':
+            speed = 0.07
+            self.frame_index += speed
+            if self.frame_index >= len(animation):
                 self.frame_index = len(animation) - 1
-                if self.status == 'ded':
-                    self._death_anim_done = True
-            else:
+                self._death_anim_done = True
+        else:
+            # idle / walk : avancement classique par tick
+            self.frame_index += self.animation_speed
+            if self.frame_index >= len(animation):
                 self.frame_index = 0
 
-        # Set image
+        # Affiche la frame courante
         if animation:
             image = animation[int(self.frame_index)]
             if not self.facing_right:
@@ -146,11 +153,10 @@ class Player(pygame.sprite.Sprite):
         else:
             if not getattr(self, "fallback_surface", None):
                 self.fallback_surface = pygame.Surface((108, 96))
-                self.fallback_surface.fill('red') # Red so it's obvious a sprite is missing
+                self.fallback_surface.fill('red')
             self.image = self.fallback_surface
             
         if not self.vulnerable:
-            # Flicker effect when invulnerable
             alpha = self.wave_value()
             self.image.set_alpha(alpha)
         else:
@@ -347,7 +353,8 @@ class Player(pygame.sprite.Sprite):
             'xp_to_next': self.xp_to_next_level,
             'gold': self.inventory['gold'],
             'iron': self.inventory['iron'],
-            'attack_damage': self.attack_damage
+            'attack_damage': self.attack_damage,
+            'artifacts': self.artifacts
         }
 
     def load_save_data(self, data):
@@ -359,3 +366,4 @@ class Player(pygame.sprite.Sprite):
         self.inventory['gold'] = data['gold']
         self.inventory['iron'] = data['iron']
         self.attack_damage = data['attack_damage']
+        self.artifacts = data.get('artifacts', 0)

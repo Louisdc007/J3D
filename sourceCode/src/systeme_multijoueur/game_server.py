@@ -3,6 +3,7 @@ import pickle
 import struct
 import random
 import threading
+import subprocess
 import sys
 import os
 import time
@@ -91,7 +92,7 @@ class GameServer:
         
         eid = 0
         for room in dg.rooms[1:]:
-            for _ in range(random.randint(3, 5 + self.current_level * 2)):
+            for _ in range(random.randint(3, min(10, 5 + self.current_level))):
                 # Try to find a valid floor position within the room
                 placed = False
                 for _attempt in range(10):
@@ -119,13 +120,73 @@ class GameServer:
             p.x = self.spawn_x
             p.y = self.spawn_y
 
+    def _ensure_firewall_rule(self):
+        """Configure automatiquement le pare-feu Windows pour autoriser le serveur.
+        - Supprime toute règle existante (y compris les blocages auto de Windows Defender)
+        - Ajoute une règle d'autorisation ciblant le .exe spécifiquement
+        Ne fait rien sur macOS/Linux. Nécessite les droits admin (fournis par uac_admin=True).
+        """
+        if sys.platform != 'win32':
+            return
+
+        rule_name = "Greed Game Server"
+
+        # Récupère le chemin de l'exe si on tourne en mode compilé (PyInstaller)
+        exe_path = sys.executable if getattr(sys, 'frozen', False) else None
+
+        try:
+            # Étape 1 : supprimer TOUTE règle existante portant ce nom
+            # (bloque ou autorise — on repart de zéro pour écraser le bloc auto de Windows)
+            subprocess.run(
+                ['netsh', 'advfirewall', 'firewall', 'delete', 'rule', f'name={rule_name}'],
+                capture_output=True, text=True, timeout=5
+            )
+
+            # Étape 2 : ajouter la règle d'autorisation en entrée
+            cmd = [
+                'netsh', 'advfirewall', 'firewall', 'add', 'rule',
+                f'name={rule_name}',
+                'dir=in',
+                'action=allow',
+                'protocol=TCP',
+                'localport=55555-55560',
+                'profile=any',   # Couvre Public, Private et Domain
+            ]
+            if exe_path:
+                # Règle ciblant le .exe : plus autoritaire qu'une règle de port seule
+                cmd.append(f'program={exe_path}')
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                cible = f"exe ({exe_path})" if exe_path else "port 55555-55560"
+                print(f"[SERVER] Pare-feu Windows configuré automatiquement ({cible}).")
+            else:
+                print(f"[SERVER] Avertissement pare-feu : {result.stderr.strip()}")
+
+            # Étape 3 : ajouter aussi une règle sortante pour la réponse
+            cmd_out = [
+                'netsh', 'advfirewall', 'firewall', 'add', 'rule',
+                f'name={rule_name} OUT',
+                'dir=out',
+                'action=allow',
+                'protocol=TCP',
+                'localport=55555-55560',
+                'profile=any',
+            ]
+            if exe_path:
+                cmd_out.append(f'program={exe_path}')
+            subprocess.run(cmd_out, capture_output=True, text=True, timeout=5)
+
+        except Exception as e:
+            print(f"[SERVER] Avertissement pare-feu : {e}")
+
+
     def start(self):
+        self._ensure_firewall_rule()  # Ouvre les ports sur Windows automatiquement
         if not self.setup_socket():
             return False
         
         self.running = True
-        # Discovery broadcaster removed for reliability (IP entry only)
-        # threading.Thread(target=self.discovery_broadcaster, daemon=True).start()
         from network import Network
         print(f"=====================================")
         print(f"[SERVER] Serveur J3D lancé !")
@@ -197,6 +258,17 @@ class GameServer:
         return pickle.loads(data)
 
     def handle_player(self, client_socket, addr):
+        # Priorité de thread basse sur Windows pour laisser le CPU au jeu
+        if sys.platform == 'win32':
+            try:
+                import ctypes
+                ctypes.windll.kernel32.SetThreadPriority(
+                    ctypes.windll.kernel32.GetCurrentThread(),
+                    -1  # THREAD_PRIORITY_BELOW_NORMAL
+                )
+            except Exception:
+                pass
+
         with self.lock:
             player_id = self.player_count
             self.player_count += 1
@@ -342,9 +414,9 @@ class GameServer:
                         self.pending_hits = []
                 
                 self._send_msg(client_socket, response)
-                # Rate-limit: target ~60 Hz to match game frame rate.
-                # On Windows, sleep() has ~15ms min granularity so 0.016 is the right target.
-                time.sleep(0.016)
+                # Tick serveur à 20 Hz : suffisant pour la sync multijoueur
+                # et beaucoup moins gourmand que 60 Hz — le game loop garde la priorité
+                time.sleep(0.05)
                 
         except Exception as e:
             print(f"[SERVER] Erreur handle_player (ID:{player_id}, Addr:{addr}) : {e}")
