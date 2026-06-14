@@ -9,6 +9,14 @@
         "iron": 9,
         "attack_damage": 5006,
         "artifacts": 0
+        "level": 2,
+        "current_health": 52,
+        "max_health": 60,
+        "xp": 70,
+        "xp_to_next": 130,
+        "gold": 0,
+        "iron": 8,
+        "attack_damage": 26
     },
     "hub": {
         "buildings": [
@@ -330,5 +338,12 @@
         ],
         "banked_iron": 0,
         "banked_gold": 0
+                "type": "bank",
+                "x": 736,
+                "y": 96
+            }
+        ],
+        "banked_iron": 334,
+        "banked_gold": 383
     }
 }
