@@ -1,4 +1,18 @@
-import pyautogui
+import sys
+import os
+
+
+def resource_path(relative_path):
+    """Retourne le chemin absolu vers une ressource.
+    Fonctionne en mode développement ET dans un exécutable PyInstaller.
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # Mode PyInstaller : les assets sont dans le dossier temporaire _MEIPASS
+        base = sys._MEIPASS
+    else:
+        # Mode développement : les assets sont à côté du script
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, relative_path)
 
 
 WIDTH = 1280
@@ -19,22 +33,26 @@ TEXT_COLOR = (255, 255, 255)
 
 # --- ECONOMIE & PRIX ---
 PRICES = {
-    'sell_iron': 2,       # Prix de vente de 1 Fer
+    'sell_iron': 2,       # Prix de vente de 20 Fer -> 2 Or
+    'buy_iron': 5,        # Or requis pour acheter 20 Fer -> 5 Or
     'buy_potion': 50,     # Prix d'une potion (50 Or)
-    'upgrade_damage': 100,# Coût amélioration dégats (100 Or)
-    'upgrade_iron_cost': 20, # Coût en fer pour l'amélioration
-    'pray_cost_xp': 50,   # XP requise pour prier (Autel)
-    'sacrifice_hp': 10,   # PV sacrifiés à la statue
-    'sacrifice_gain': 50  # Or gagné par sacrifice
+    'upgrade_damage': 150,# Coût amélioration dégats (150 Or)
+    'upgrade_iron_cost': 30, # Coût en fer pour l'amélioration
+    'study_gold': 30,     # Or requis pour étudier (Bibliothèque)
+    'study_iron': 15,     # Fer requis pour étudier
+    'study_xp_gain': 25,  # XP gagnée en étudiant
+    'research_gold': 80,  # Or requis pour recherche approfondie
+    'research_iron': 40,  # Fer requis pour recherche approfondie
+    'research_xp_gain': 75 # XP gagnée en recherche approfondie
 }
 
 # --- CONFIGURATION DES MONSTRES ---
 MONSTER_DATA = {
-    'tier1': {'health': 3, 'damage': 5, 'speed': 2, 'notice_radius': 300, 'color': 'red', 'loot': {'xp': (3, 5), 'iron' : (1, 3)}},
-    'tier2': {'health': 8, 'damage': 10, 'speed': 3, 'notice_radius': 350, 'color': (200, 100, 100), 'loot': {'xp': (6, 9), 'iron': (2, 5)}},
-    'tier3': {'health': 15, 'damage': 20, 'speed': 4, 'notice_radius': 400, 'color': (150, 50, 50), 'loot': {'xp': (12, 18), 'iron': (4, 8), 'gold': (0, 1)}},
-    'tier4': {'health': 25, 'damage': 30, 'speed': 5, 'notice_radius': 450, 'color': (100, 0, 0), 'loot': {'xp': (20, 30), 'iron': (5, 10), 'gold': (2, 5)}},
-    'tier5': {'health': 50, 'damage': 40, 'speed': 6, 'notice_radius': 500, 'color': 'white', 'loot': {'xp': (50, 80), 'iron': (10, 20), 'gold': (10, 20)}}
+    'tier1': {'health': 15, 'damage': 8, 'speed': 2, 'notice_radius': 300, 'color': 'red', 'loot': {'xp': (3, 5), 'iron' : (0, 2)}},
+    'tier2': {'health': 30, 'damage': 15, 'speed': 3, 'notice_radius': 350, 'color': (200, 100, 100), 'loot': {'xp': (6, 9), 'iron': (1, 3)}},
+    'tier3': {'health': 50, 'damage': 25, 'speed': 4, 'notice_radius': 400, 'color': (150, 50, 50), 'loot': {'xp': (12, 18), 'iron': (2, 4), 'gold': (0, 1)}},
+    'tier4': {'health': 100, 'damage': 40, 'speed': 5, 'notice_radius': 450, 'color': (100, 0, 0), 'loot': {'xp': (20, 30), 'iron': (3, 6), 'gold': (1, 2)}},
+    'tier5': {'health': 200, 'damage': 60, 'speed': 6, 'notice_radius': 500, 'color': 'white', 'loot': {'xp': (50, 80), 'iron': (5, 10), 'gold': (2, 5)}}
 }
 
 # --- CONFIGURATION DES BATIMENTS ---
@@ -48,44 +66,44 @@ BUILDING_DATA = {
     },
     'forge': {
         'name': 'Forge',
-        'cost_gold': 5, 'cost_iron': 50, 'cost_npc': 2,
+        'cost_gold': 20, 'cost_iron': 50, 'cost_npc': 2,
         'desc': 'Améliorer les armes',
         'color': (100, 100, 120), 'size': (128, 128)
     },
     'shop': {
         'name': 'Marché',
-        'cost_gold': 30, 'cost_iron': 0, 'cost_npc': 2,
+        'cost_gold': 30, 'cost_iron': 15, 'cost_npc': 2,
         'desc': 'Vendre Fer / Acheter Potions',
         'color': (200, 180, 50), 'size': (128, 64)
     },
     'bank': {
         'name': 'Banque',
         'cost_gold': 100, 'cost_iron': 20, 'cost_npc': 4,
-        'desc': 'Sécuriser l\'or (WIP)',
+        'desc': 'Stocker Fer et Or (Taxe 2%/jr)',
         'color': (218, 165, 32), 'size': (128, 64)
     },
     'library': {
         'name': 'Bibliothèque',
         'cost_gold': 50, 'cost_iron': 100, 'cost_npc': 3,
-        'desc': 'Acheter XP (WIP)',
+        'desc': 'Échanger Or et Fer contre XP',
         'color': (0, 139, 139), 'size': (128, 128)
-    },
-    'altar': {
-        'name': 'Autel',
-        'cost_gold': 15, 'cost_iron': 10, 'cost_npc': 1,
-        'desc': 'Dépenser XP > Max PV',
-        'color': (150, 50, 150), 'size': (64, 128)
-    },
-    'statue': {
-        'name': 'Maudit',
-        'cost_gold': 66, 'cost_iron': 66, 'cost_npc': 1,
-        'desc': 'Sacrifice PV > Or',
-        'color': (75, 0, 130), 'size': (64, 64)
     },
     'path': {
         'name': 'Chemin',
         'cost_gold': 0, 'cost_iron': 2, 'cost_npc': 0,
         'desc': 'Décoration',
-        'color': (160, 120, 80), 'size': (64, 64), 'walkable': True
+        'color': (160, 120, 80), 'size': (32, 32), 'walkable': True
+    },
+    'tree': {
+        'name': 'Arbre',
+        'cost_gold': 5, 'cost_iron': 5, 'cost_npc': 0,
+        'desc': 'Décoration',
+        'color': (34, 139, 34), 'size': (64, 64)
+    },
+    'flower': {
+        'name': 'Fleur',
+        'cost_gold': 2, 'cost_iron': 0, 'cost_npc': 0,
+        'desc': 'Décoration',
+        'color': (255, 105, 180), 'size': (32, 32)
     }
 }

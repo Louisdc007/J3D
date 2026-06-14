@@ -5,6 +5,7 @@ class Item(pygame.sprite.Sprite):
         super().__init__(groups)
 
         self.type = type
+        self.multiplayer_id = None # Set when synced
 
         self.image = pygame.Surface((16, 16))
         if type == 'gold':
@@ -17,4 +18,8 @@ class Item(pygame.sprite.Sprite):
             self.image.fill((178, 53, 45))
 
         self.rect = self.image.get_rect(topleft=pos)
-        self.hitbox = self.rect.inflate(-10, -10)
+        # Hitbox widened to 40x40 for easy pickup in multiplayer
+        self.hitbox = self.rect.inflate(24, 24)
+
+    def update(self, dt=0.016):
+        pass

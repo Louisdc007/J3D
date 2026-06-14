@@ -1,7 +1,23 @@
 import pygame
 import random
+import os
 from settings import *
 from entities.npc import NPC
+
+# Mapping des textures de bâtiments
+BUILDING_TEXTURES = {
+    'bank': 'bank.jpg',
+    'forge': 'forge.jpg',
+    'library': 'bibli.jpg',
+    'shop': 'marche.jpg',
+    'path': ('floor_assets', 'dirt_path.jpg'),  # Tuple = dossier différent
+}
+
+# Bâtiments avec mode de rendu spécial (fill-Y, crop-X centré)
+BUILDING_CROP_MODE = {'library'}
+
+# Bâtiments avec mode motif : la texture est scalée puis découpée pour être alignée sur la grille
+BUILDING_PATTERN_MODE = {'path': (320, 320)}  # 5x5 tiles de 64px
 
 class Block(pygame.sprite.Sprite):
     def __init__(self, rect, group):
@@ -13,9 +29,46 @@ class Building(pygame.sprite.Sprite):
         super().__init__(group)
         self.type = type
         data = BUILDING_DATA[type]
-        self.image = pygame.Surface(data['size'])
-        self.image.fill(data['color'])
-        pygame.draw.rect(self.image, (30, 30, 30), (0, 0, data['size'][0], data['size'][1]), 3)
+        # Charger la texture si disponible, sinon rectangle de couleur
+        target_w, target_h = data['size']
+        if type in BUILDING_TEXTURES:
+            tex_entry = BUILDING_TEXTURES[type]
+            if isinstance(tex_entry, tuple):
+                tex_path = resource_path(os.path.join('assets', tex_entry[0], tex_entry[1]))
+            else:
+                tex_path = resource_path(os.path.join('assets', 'building', tex_entry))
+            try:
+                tex = pygame.image.load(tex_path).convert()
+                if type in BUILDING_CROP_MODE:
+                    # Mode spécial : remplir la hauteur, cropper le surplus en largeur (centré)
+                    orig_w, orig_h = tex.get_size()
+                    scale_factor = target_h / orig_h
+                    scaled_w = int(orig_w * scale_factor)
+                    scaled_h = target_h
+                    tex_scaled = pygame.transform.scale(tex, (scaled_w, scaled_h))
+                    # Crop centré sur X
+                    crop_x = (scaled_w - target_w) // 2
+                    self.image = tex_scaled.subsurface(pygame.Rect(crop_x, 0, target_w, target_h)).copy()
+                elif type in BUILDING_PATTERN_MODE:
+                    # Mode motif : redimensionner à la taille du motif global et extraire le bout
+                    pat_w, pat_h = BUILDING_PATTERN_MODE[type]
+                    tex_scaled = pygame.transform.scale(tex, (pat_w, pat_h))
+                    px, py = pos
+                    src_x = int(px % pat_w)
+                    src_y = int(py % pat_h)
+                    self.image = pygame.Surface((target_w, target_h))
+                    self.image.blit(tex_scaled, (0, 0), (src_x, src_y, target_w, target_h))
+                else:
+                    # Mode normal : étirer pour remplir la zone
+                    self.image = pygame.transform.scale(tex, (target_w, target_h))
+            except Exception:
+                self.image = pygame.Surface(data['size'])
+                self.image.fill(data['color'])
+                pygame.draw.rect(self.image, (30, 30, 30), (0, 0, target_w, target_h), 3)
+        else:
+            self.image = pygame.Surface(data['size'])
+            self.image.fill(data['color'])
+            pygame.draw.rect(self.image, (30, 30, 30), (0, 0, target_w, target_h), 3)
         self.rect = self.image.get_rect(topleft=pos)
         self.name = data['name']
 
@@ -37,16 +90,36 @@ class Hub:
         self.npc_sprites = pygame.sprite.Group() 
         self.hub_obstacles = pygame.sprite.Group()
 
+        # --- TEXTURE HERBE (fond) ---
+        grass_path = resource_path(os.path.join('assets', 'floor_assets', 'grass.jpg'))
+        try:
+            self.grass_tile = pygame.image.load(grass_path).convert()
+            self.grass_tile = pygame.transform.scale(self.grass_tile, (320, 320))
+        except Exception:
+            self.grass_tile = None
+
+        # --- TEXTURE CHEMIN (rond-point + route) ---
+        dirt_path = resource_path(os.path.join('assets', 'floor_assets', 'dirt_path.jpg'))
+        try:
+            self.dirt_tile = pygame.image.load(dirt_path).convert()
+            # La texture représente 5x5 tiles de 64px -> 320x320
+            self.dirt_tile = pygame.transform.scale(self.dirt_tile, (320, 320))
+        except Exception:
+            self.dirt_tile = None
+
         # --- LAYOUT UI (CONSTANTES) ---
         self.panel_height = 180 
         self.panel_top = HEIGHT - self.panel_height
         self.buttons_y = HEIGHT - 90 
         
         # --- MENUS BATIMENTS ---
-        self.active_menu = None # 'forge', 'shop', 'altar', etc. ou None
+        self.active_menu = None # 'forge', 'shop', 'bank', 'library' ou None
         self.menu_buttons = []  # Liste des boutons du menu actif
         self.menu_rect = pygame.Rect(0, 0, 400, 300)
         self.menu_rect.center = (WIDTH//2, HEIGHT//2)
+        self.state_lock_time = 0
+        self.warning_msg = None
+        self.warning_timer = 0
         
         # --- ZONES FIXES ---
         self.campfire_rect = pygame.Rect(0, 0, 60, 60)
@@ -61,8 +134,10 @@ class Hub:
 
         # --- POPULATION ---
         self.max_population = 0 
-        self.current_workers = 0 
         self.max_cap_limit = 15 
+
+        self.banked_iron = 0
+        self.banked_gold = 0
 
         # --- ETATS ---
         self.waiting_for_night = False
@@ -147,6 +222,7 @@ class Hub:
         """Ouvre le menu spécifique à un type de batiment"""
         self.active_menu = b_type
         self.menu_buttons = []
+        self.state_lock_time = pygame.time.get_ticks() + 300
         
         cx = self.menu_rect.centerx
         start_y = self.menu_rect.top + 80
@@ -162,30 +238,60 @@ class Hub:
             })
         elif b_type == 'shop':
             self.menu_buttons.append({
-                'text': f"Vendre 10 Fer (+{PRICES['sell_iron']*10} Or)",
-                'action': 'sell_iron_10',
+                'text': f"Vendre 20 Fer (+{PRICES['sell_iron']} Or)",
+                'action': 'sell_iron_20',
                 'rect': pygame.Rect(0, 0, 350, 40),
                 'pos': (cx, start_y)
+            })
+            self.menu_buttons.append({
+                'text': f"Acheter 20 Fer (-{PRICES['buy_iron']} Or)",
+                'action': 'buy_iron_20',
+                'rect': pygame.Rect(0, 0, 350, 40),
+                'pos': (cx, start_y + gap)
             })
             self.menu_buttons.append({
                 'text': f"Acheter Potion ({PRICES['buy_potion']} Or)",
                 'action': 'buy_potion',
                 'rect': pygame.Rect(0, 0, 350, 40),
+                'pos': (cx, start_y + gap * 2)
+            })
+        elif b_type == 'bank':
+            self.menu_buttons.append({
+                'text': f"Sécuriser 50 Fer",
+                'action': 'deposit_iron',
+                'rect': pygame.Rect(0, 0, 165, 40),
+                'pos': (cx - 90, start_y)
+            })
+            self.menu_buttons.append({
+                'text': f"Retirer 50 Fer",
+                'action': 'withdraw_iron',
+                'rect': pygame.Rect(0, 0, 165, 40),
+                'pos': (cx + 90, start_y)
+            })
+            self.menu_buttons.append({
+                'text': f"Sécuriser 50 Or",
+                'action': 'deposit_gold',
+                'rect': pygame.Rect(0, 0, 165, 40),
+                'pos': (cx - 90, start_y + gap)
+            })
+            self.menu_buttons.append({
+                'text': f"Retirer 50 Or",
+                'action': 'withdraw_gold',
+                'rect': pygame.Rect(0, 0, 165, 40),
+                'pos': (cx + 90, start_y + gap)
+            })
+        elif b_type == 'library':
+            self.menu_buttons.append({
+                'text': f"Étudier: +{PRICES['study_xp_gain']} XP ({PRICES['study_gold']} Or + {PRICES['study_iron']} Fer)",
+                'action': 'study',
+                'rect': pygame.Rect(0, 0, 350, 40),
+                'pos': (cx, start_y)
+            })
+            self.menu_buttons.append({
+                'text': f"Recherche: +{PRICES['research_xp_gain']} XP ({PRICES['research_gold']} Or + {PRICES['research_iron']} Fer)",
+                'action': 'research',
+                'rect': pygame.Rect(0, 0, 350, 40),
                 'pos': (cx, start_y + gap)
-            })
-        elif b_type == 'altar':
-            self.menu_buttons.append({
-                'text': f"Prier: +10 Max PV ({PRICES['pray_cost_xp']} XP)",
-                'action': 'pray_hp',
-                'rect': pygame.Rect(0, 0, 350, 40),
-                'pos': (cx, start_y)
-            })
-        elif b_type == 'statue':
-            self.menu_buttons.append({
-                'text': f"Sacrifier {PRICES['sacrifice_hp']} PV (+{PRICES['sacrifice_gain']} Or)",
-                'action': 'sacrifice',
-                'rect': pygame.Rect(0, 0, 350, 40),
-                'pos': (cx, start_y)
             })
         
         # Bouton fermer commun
@@ -200,7 +306,14 @@ class Hub:
             btn['rect'].center = btn['pos']
 
     def draw(self):
-        self.display_surface.fill((34, 139, 34))
+        # Fond : tiler la texture d'herbe au lieu d'un aplat vert
+        if self.grass_tile:
+            tile_w, tile_h = self.grass_tile.get_size()
+            for x in range(0, WIDTH, tile_w):
+                for y in range(0, HEIGHT, tile_h):
+                    self.display_surface.blit(self.grass_tile, (x, y))
+        else:
+            self.display_surface.fill((34, 139, 34))
         self.draw_environment()
         for sprite in self.path_sprites: self.display_surface.blit(sprite.image, sprite.rect)
         if not self.build_mode_active and not self.paused_ui_active() and not self.active_menu: self.npc_sprites.update()
@@ -229,6 +342,22 @@ class Hub:
                 pygame.draw.rect(self.display_surface, (255, 255, 255), self.btn_open_build, 2, border_radius=5)
                 self.draw_text("CONSTRUIRE", self.btn_open_build.center)
 
+        # Affichage des alertes à l'écran
+        if self.warning_msg and pygame.time.get_ticks() < self.warning_timer:
+            self.draw_warning_banner()
+
+    def show_warning(self, msg):
+        self.warning_msg = msg
+        self.warning_timer = pygame.time.get_ticks() + 2000
+
+    def draw_warning_banner(self):
+        txt_surf = pygame.font.Font(UI_FONT, 20).render(self.warning_msg, True, (255, 100, 100))
+        txt_rect = txt_surf.get_rect(center=(WIDTH // 2, HEIGHT - 120 if self.active_menu else HEIGHT // 2 + 180))
+        bg_rect = txt_rect.inflate(30, 15)
+        pygame.draw.rect(self.display_surface, (30, 20, 20), bg_rect, border_radius=5)
+        pygame.draw.rect(self.display_surface, (255, 100, 100), bg_rect, 2, border_radius=5)
+        self.display_surface.blit(txt_surf, txt_rect)
+
     def draw_active_menu(self):
         # Fond sombre flou
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -241,6 +370,7 @@ class Hub:
         
         # Titre
         title_txt = BUILDING_DATA[self.active_menu]['name'].upper()
+        if self.active_menu == 'bank': title_txt += f" (Fer: {self.banked_iron} | Or: {self.banked_gold}) - Taxe: 2%/j"
         self.draw_text(title_txt, (self.menu_rect.centerx, self.menu_rect.top + 30), font=self.title_font, color=(255, 215, 0))
         
         # Boutons
@@ -259,11 +389,21 @@ class Hub:
         return self.night_arrived or self.waiting_for_night or self.menu_state is not None or self.active_menu is not None
 
     def check_click(self, pos, player):
+        now = pygame.time.get_ticks()
+        if now < self.state_lock_time:
+            print(f"  [CLICK LOCKED] Click ignored because lock timer active until {self.state_lock_time}")
+            return None
+        
+        print(f"[HUB CLICK] pos={pos}, active_menu={self.active_menu}, build_mode={self.build_mode_active}")
         # 1. Priorité absolue : Menu Bâtiment Actif
         if self.active_menu:
+            print(f"  Checking active menu buttons...")
+            for i, btn in enumerate(self.menu_buttons):
+                print(f"    Menu Button {i} ({btn['action']}): rect={btn['rect']}, collides={btn['rect'].collidepoint(pos)}")
             for btn in self.menu_buttons:
                 if btn['rect'].collidepoint(pos):
                     action = btn['action']
+                    self.state_lock_time = pygame.time.get_ticks() + 300 # Lock click on any active menu button interaction
                     
                     if action == 'close_menu':
                         self.active_menu = None
@@ -277,70 +417,167 @@ class Hub:
                             player.attack_damage += 2 # Gain
                             print("Arme améliorée !")
                             return "save" # On demande une save
-                        else: print("Pas assez de ressources !")
+                        else:
+                            self.show_warning("Pas assez de ressources !")
+                            print("Pas assez de ressources !")
                         
-                    elif action == 'sell_iron_10':
-                        if player.inventory['iron'] >= 10:
-                            player.inventory['iron'] -= 10
-                            player.inventory['gold'] += PRICES['sell_iron'] * 10
-                            print("Fer vendu !")
+                    elif action == 'deposit_iron':
+                        if player.inventory['iron'] >= 50:
+                            player.inventory['iron'] -= 50
+                            self.banked_iron += 50
+                            print("50 Fer déposés !")
+                            self.open_building_menu('bank') # Refresh menu text
                             return "save"
-                        else: print("Pas assez de fer !")
+                        else:
+                            self.show_warning("Pas assez de fer !")
+                            print("Pas assez de fer !")
+                        
+                    elif action == 'withdraw_iron':
+                        if self.banked_iron >= 50:
+                            self.banked_iron -= 50
+                            player.inventory['iron'] += 50
+                            print("50 Fer retirés !")
+                            self.open_building_menu('bank') # Refresh menu text
+                            return "save"
+                        else:
+                            self.show_warning("Pas assez de fer en banque !")
+                            print("Pas assez de fer en banque !")
+                        
+                    elif action == 'deposit_gold':
+                        if player.inventory['gold'] >= 50:
+                            player.inventory['gold'] -= 50
+                            self.banked_gold += 50
+                            print("50 Or déposés !")
+                            self.open_building_menu('bank') # Refresh menu text
+                            return "save"
+                        else:
+                            self.show_warning("Pas assez d'or !")
+                            print("Pas assez d'or !")
+                        
+                    elif action == 'withdraw_gold':
+                        if self.banked_gold >= 50:
+                            self.banked_gold -= 50
+                            player.inventory['gold'] += 50
+                            print("50 Or retirés !")
+                            self.open_building_menu('bank') # Refresh menu text
+                            return "save"
+                        else:
+                            self.show_warning("Pas assez d'or en banque !")
+                            print("Pas assez d'or en banque !")
+                        
+                    elif action == 'sell_iron_20':
+                        if player.inventory['iron'] >= 20:
+                            player.inventory['iron'] -= 20
+                            player.inventory['gold'] += PRICES['sell_iron']
+                            print(f"20 Fer vendu pour {PRICES['sell_iron']} Or !")
+                            return "save"
+                        else:
+                            self.show_warning("Pas assez de fer !")
+                            print("Pas assez de fer !")
+                        
+                    elif action == 'buy_iron_20':
+                        if player.inventory['gold'] >= PRICES['buy_iron']:
+                            player.inventory['gold'] -= PRICES['buy_iron']
+                            player.inventory['iron'] += 20
+                            print(f"20 Fer acheté pour {PRICES['buy_iron']} Or !")
+                            return "save"
+                        else:
+                            self.show_warning("Pas assez d'or !")
+                            print("Pas assez d'or !")
                         
                     elif action == 'buy_potion':
-                        if player.inventory['gold'] >= PRICES['buy_potion']:
-                            player.inventory['gold'] -= PRICES['buy_potion']
-                            # TODO: Ajouter potion à l'inventaire (ou soin direct si pas d'inventaire item)
-                            player.health = min(player.health + 50, player.max_health) # Soin direct pour l'instant
-                            print("Potion achetée et bue !")
-                            return "save"
-                        else: print("Pas assez d'or !")
+                        if player.health < player.max_health:
+                            if player.inventory['gold'] >= PRICES['buy_potion']:
+                                player.inventory['gold'] -= PRICES['buy_potion']
+                                player.health = min(player.health + 50, player.max_health)
+                                print("Potion achetée et bue !")
+                                return "save"
+                            else:
+                                self.show_warning("Pas assez d'or !")
+                                print("Pas assez d'or !")
+                        else:
+                            self.show_warning("Points de vie au maximum.")
+                            print("Points de vie au maximum.")
                         
-                    elif action == 'pray_hp':
-                        if player.inventory['xp'] >= PRICES['pray_cost_xp']:
-                            player.inventory['xp'] -= PRICES['pray_cost_xp']
-                            player.max_health += 10
-                            player.health = player.max_health
-                            print("Prières entendues : Max HP +10")
+                    elif action == 'study':
+                        cost_g = PRICES['study_gold']
+                        cost_i = PRICES['study_iron']
+                        if player.inventory['gold'] >= cost_g and player.inventory['iron'] >= cost_i:
+                            player.inventory['gold'] -= cost_g
+                            player.inventory['iron'] -= cost_i
+                            player.inventory['xp'] += PRICES['study_xp_gain']
+                            print(f"Connaissance acquise ! +{PRICES['study_xp_gain']} XP")
                             return "save"
-                        else: print("Pas assez d'XP !")
+                        else:
+                            self.show_warning("Pas assez de ressources !")
+                            print("Pas assez de ressources !")
                         
-                    elif action == 'sacrifice':
-                        if player.max_health > 20: # On ne peut pas se suicider
-                            player.max_health -= PRICES['sacrifice_hp']
-                            player.health = min(player.health, player.max_health)
-                            player.inventory['gold'] += PRICES['sacrifice_gain']
-                            print("Sacrifice accepté.")
+                    elif action == 'research':
+                        cost_g = PRICES['research_gold']
+                        cost_i = PRICES['research_iron']
+                        if player.inventory['gold'] >= cost_g and player.inventory['iron'] >= cost_i:
+                            player.inventory['gold'] -= cost_g
+                            player.inventory['iron'] -= cost_i
+                            player.inventory['xp'] += PRICES['research_xp_gain']
+                            print(f"Recherche terminée ! +{PRICES['research_xp_gain']} XP")
                             return "save"
-                        else: print("Santé trop basse pour sacrifier !")
+                        else:
+                            self.show_warning("Pas assez de ressources !")
+                            print("Pas assez de ressources !")
                         
             # Si on clique hors du menu, on le ferme
             if not self.menu_rect.collidepoint(pos):
                 self.active_menu = None
+                self.state_lock_time = pygame.time.get_ticks() + 300
             return None
 
         # 2. Menus contextuels (Nuit, Donjon...)
         if self.night_arrived:
             if self.btn_rest_night.collidepoint(pos):
-                self.night_arrived = False; player.health = player.max_health; return "rest_at_night"
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.night_arrived = False
+                player.health = player.max_health
+                self.apply_daily_tax()
+                return "rest_at_night"
             elif self.btn_explore_night.collidepoint(pos):
-                self.night_arrived = False; return "explore_at_night"
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.night_arrived = False
+                return "explore_at_night"
             return None
         
         if self.waiting_for_night:
-            if self.btn_wait_night.collidepoint(pos): self.waiting_for_night = False; return f"wait_for_night_{self.pending_dungeon_choice}"
-            elif self.btn_go_now.collidepoint(pos): self.waiting_for_night = False; self.pending_dungeon_choice = None; return None
+            if self.btn_wait_night.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.waiting_for_night = False
+                return f"wait_for_night_{self.pending_dungeon_choice}"
+            elif self.btn_go_now.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.waiting_for_night = False
+                self.pending_dungeon_choice = None
+                return None
             return None
 
         if self.menu_state == 'dungeon':
-            if self.btn_random.collidepoint(pos): self.menu_state = None; return "dungeon_random_check"
-            elif self.btn_main_dungeons.collidepoint(pos): self.menu_state = None; return None
-            else: self.menu_state = None; return None
+            if self.btn_random.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.menu_state = None
+                return "dungeon_random_check"
+            elif self.btn_main_dungeons.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.menu_state = None
+                return "dungeon_major_check"
+            else:
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.menu_state = None
+                return None
         
         # 3. Mode Construction
         if self.build_mode_active:
             for btn in self.build_buttons:
-                if btn['rect'].collidepoint(pos): self.selected_blueprint = btn['key']; return None
+                if btn['rect'].collidepoint(pos):
+                    self.state_lock_time = pygame.time.get_ticks() + 300
+                    self.selected_blueprint = btn['key']
+                    return None
             if self.selected_blueprint and pos[1] < self.panel_top:
                 data = BUILDING_DATA[self.selected_blueprint]
                 w, h = data['size']
@@ -365,35 +602,116 @@ class Hub:
                                 self.built_buildings.append({'type': self.selected_blueprint, 'x': snapped_pos[0], 'y': snapped_pos[1]})
                                 if not is_walkable: self.spawn_npcs(player)
                                 print(f"Batiment {data['name']} construit !"); return "build_action"
-                            else: print("Pas assez de ressources !")
-                        else: print("Pas assez d'ouvriers libres !")
-                    else: print("Limite atteinte !")
-                else: print("Placement invalide !")
+                            else:
+                                self.show_warning("Pas assez de ressources !")
+                                print("Pas assez de ressources !")
+                        else:
+                            self.show_warning("Pas assez d'ouvriers libres !")
+                            print("Pas assez d'ouvriers libres !")
+                    else:
+                        self.show_warning("Limite de batiments atteinte !")
+                        print("Limite atteinte !")
+                else:
+                    self.show_warning("Placement invalide !")
+                    print("Placement invalide !")
             return None 
 
         # 4. Mode Normal (Interaction Batiments)
         else:
+            print("  Checking normal interactions...")
             # On vérifie si on clique sur un batiment construit
             for b_sprite in self.building_sprites:
+                print(f"    Building {b_sprite.name} (type={b_sprite.type}): rect={b_sprite.rect}, collides={b_sprite.rect.collidepoint(pos)}")
                 if b_sprite.rect.collidepoint(pos):
                     print(f"Clic sur {b_sprite.name}")
                     # On vérifie si ce batiment a un menu
                     # b_sprite.type contient la clé (ex: 'forge')
-                    if b_sprite.type in ['forge', 'shop', 'altar', 'statue']:
+                    if b_sprite.type in ['forge', 'shop', 'bank', 'library']:
                         self.open_building_menu(b_sprite.type)
                         return None
 
             # Autres intéractions
-            if self.gate_rect.collidepoint(pos): self.menu_state = 'dungeon'; return None
-            if self.tent_rect.collidepoint(pos): player.health = player.max_health; return "rest"
-            if self.btn_open_build.collidepoint(pos): self.build_mode_active = True; self.selected_blueprint = None; return None
+            print(f"    Gate: rect={self.gate_rect}, collides={self.gate_rect.collidepoint(pos)}")
+            print(f"    Tent: rect={self.tent_rect}, collides={self.tent_rect.collidepoint(pos)}")
+            print(f"    Build Button: rect={self.btn_open_build}, collides={self.btn_open_build.collidepoint(pos)}")
+            if self.gate_rect.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.menu_state = 'dungeon'
+                return None
+            if self.tent_rect.collidepoint(pos): 
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                player.health = player.max_health
+                self.apply_daily_tax()
+                return "rest"
+            if self.btn_open_build.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 300
+                self.build_mode_active = True
+                self.selected_blueprint = None
+                return None
         return None
 
-    # ... (le reste des méthodes draw_environment, draw_build_mode_ui, etc. est inchangé) ...
+    def apply_daily_tax(self):
+        """Applique une taxe de 2% sur les ressources stockées en banque chaque nuit"""
+        tax_rate = 0.02
+        if self.banked_iron > 0:
+            taxed_iron = int(self.banked_iron * tax_rate)
+            # Minimum 1 de taxe si on a de l'argent pour éviter que les petits montants soient ignorés
+            if taxed_iron == 0 and self.banked_iron >= 50: taxed_iron = 1
+            self.banked_iron = max(0, self.banked_iron - taxed_iron)
+            
+        if self.banked_gold > 0:
+            taxed_gold = int(self.banked_gold * tax_rate)
+            if taxed_gold == 0 and self.banked_gold >= 50: taxed_gold = 1
+            self.banked_gold = max(0, self.banked_gold - taxed_gold)
+            
+        print(f"[Banque] Les taxes journalières ont été perçues (2%).")
+
     def draw_environment(self):
         path_color = (160, 130, 90)
-        pygame.draw.circle(self.display_surface, path_color, (self.center_x, self.center_y), 100)
-        pygame.draw.line(self.display_surface, path_color, (self.center_x, self.center_y), self.gate_rect.center, 60)
+        radius = 100
+        cx, cy = self.center_x, self.center_y
+        
+        # --- Rond-point texturé ---
+        if self.dirt_tile:
+            circle_size = radius * 2
+            circle_surf = pygame.Surface((circle_size, circle_size), pygame.SRCALPHA)
+            tile_w, tile_h = self.dirt_tile.get_size()
+            
+            # Alignement de la texture globale sur le monde
+            wx = cx - radius
+            wy = cy - radius
+            offset_x = int(wx % tile_w)
+            offset_y = int(wy % tile_h)
+            
+            for tx in range(-offset_x, circle_size, tile_w):
+                for ty in range(-offset_y, circle_size, tile_h):
+                    circle_surf.blit(self.dirt_tile, (tx, ty))
+                    
+            # Appliquer un masque circulaire
+            mask_surf = pygame.Surface((circle_size, circle_size), pygame.SRCALPHA)
+            pygame.draw.circle(mask_surf, (255, 255, 255, 255), (radius, radius), radius)
+            circle_surf.blit(mask_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MIN)
+            self.display_surface.blit(circle_surf, (wx, wy))
+            
+            # --- Route vers la porte (texturée) ---
+            road_width = 60
+            gate_cx, gate_cy = self.gate_rect.center
+            road_height = gate_cy - cy
+            if road_height > 0:
+                road_surf = pygame.Surface((road_width, road_height), pygame.SRCALPHA)
+                wx_road = cx - road_width // 2
+                wy_road = cy
+                r_offset_x = int(wx_road % tile_w)
+                r_offset_y = int(wy_road % tile_h)
+                
+                for tx in range(-r_offset_x, road_width, tile_w):
+                    for ty in range(-r_offset_y, road_height, tile_h):
+                        road_surf.blit(self.dirt_tile, (tx, ty))
+                self.display_surface.blit(road_surf, (wx_road, wy_road))
+        else:
+            pygame.draw.circle(self.display_surface, path_color, (cx, cy), radius)
+            pygame.draw.line(self.display_surface, path_color, (cx, cy), self.gate_rect.center, 60)
+        
         pygame.draw.rect(self.display_surface, (65, 105, 225), self.tent_rect, border_radius=10)
         self.draw_text("Repos", self.tent_rect.center, size=15)
         pygame.draw.circle(self.display_surface, (255, 69, 0), self.campfire_rect.center, 20)
@@ -520,12 +838,30 @@ class Hub:
         pygame.draw.rect(self.display_surface, (100, 100, 200), self.btn_explore_night, border_radius=5)
         self.draw_text("Explorer", self.btn_explore_night.center, size=14)
 
-    def get_save_data(self): return self.built_buildings
+    def get_save_data(self): 
+        return {
+            'buildings': self.built_buildings,
+            'banked_iron': self.banked_iron,
+            'banked_gold': self.banked_gold
+        }
+        
     def load_save_data(self, data):
         self.built_buildings = []; self.building_sprites.empty(); self.path_sprites.empty(); self.hub_obstacles.empty()
         for rect in self.fixed_obstacles: Block(rect, [self.hub_obstacles])
-        if not isinstance(data, list): print("Format invalide."); return
-        for b in data:
+        
+        b_list = []
+        if isinstance(data, list):
+            b_list = data
+            self.banked_iron = 0
+            self.banked_gold = 0
+        elif isinstance(data, dict):
+            b_list = data.get('buildings', [])
+            self.banked_iron = data.get('banked_iron', 0)
+            self.banked_gold = data.get('banked_gold', 0)
+        else:
+            print("Format invalide."); return
+            
+        for b in b_list:
             if isinstance(b, dict) and 'type' in b and 'x' in b and 'y' in b:
                 if b['type'] in BUILDING_DATA:
                     info = BUILDING_DATA[b['type']]

@@ -2,6 +2,7 @@ import socket
 import sys
 import os
 import pickle
+import struct
 import random
 from _thread import *
 
@@ -45,7 +46,7 @@ for y, row in enumerate(map_data):
         if col == 'x':
             obstacles.append(SharedObstacle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE, BLACK))
 
-available_monsters = ['tier1', 'tier2', 'tier3']
+available_monsters = ['tier1', 'tier2', 'tier3', 'tier4', 'tier5']
 eid = 0
 for room in dg.rooms[1:]:
     for _ in range(random.randint(2, 4)):
@@ -60,14 +61,37 @@ for room in dg.rooms[1:]:
 
 players = {}
 
+def _recv_exact(conn, n):
+    data = b""
+    while len(data) < n:
+        packet = conn.recv(n - len(data))
+        if not packet:
+            return None
+        data += packet
+    return data
+
+def _recv_msg(conn):
+    raw_len = _recv_exact(conn, 4)
+    if raw_len is None:
+        return None
+    msg_len = struct.unpack('>I', raw_len)[0]
+    data = _recv_exact(conn, msg_len)
+    if data is None:
+        return None
+    return pickle.loads(data)
+
+def _send_msg(conn, data):
+    raw = pickle.dumps(data)
+    header = struct.pack('>I', len(raw))
+    conn.sendall(header + raw)
+
 def threaded_client(conn, player_id):
-    conn.send(pickle.dumps((player_id, obstacles, (SPAWN_X, SPAWN_Y), server_enemies)))
+    _send_msg(conn, (player_id, obstacles, (SPAWN_X, SPAWN_Y), server_enemies))
     
     while True:
         try:
-            data = conn.recv(4096)
-            if not data: break
-            payload = pickle.loads(data)
+            payload = _recv_msg(conn)
+            if payload is None: break
             
             inputs = payload.get('keys', {})
             killed_by_client = payload.get('killed_enemies', [])
@@ -91,7 +115,7 @@ def threaded_client(conn, player_id):
                 players[player_id].update_logic(inputs, obstacles)
             
             # On renvoie les joueurs, les morts ET les positions en direct !
-            conn.sendall(pickle.dumps((players, list(dead_enemies), server_enemies)))
+            _send_msg(conn, (players, list(dead_enemies), server_enemies))
         except: break
     
     print(f"Joueur {player_id} déconnecté.")

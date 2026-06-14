@@ -1,138 +1,319 @@
 import pygame
 from settings import *
 import random
+import os
+
+
+# Sprite folder per tier (None = fallback solid color)
+TIER_SPRITE_DIRS = {
+    'tier1': 'orc_frames_clean',
+    'tier2': 'toimp/Mushroom_frames',
+    'tier3': 'toimp/Fly_frames',
+    'tier4': 'toimp/Skeleton_frames',
+    'tier5': 'toimp/BigGoblin_frames',
+}
+
+# Visual size per tier (can vary)
+TIER_VISUAL_SIZES = {
+    'tier1': (320, 320),
+    'tier2': (225, 225),
+    'tier3': (225, 225),
+    'tier4': (225, 225),
+    'tier5': (225, 225),
+}
+
+# Default / Fallback size
+DEFAULT_VISUAL_SIZE = (TILE_SIZE, TILE_SIZE)
 
 
 class Enemy(pygame.sprite.Sprite):
+    # Class-level cache: tier -> {'idle': [...], 'walk': [...], 'atk': [...], 'ded': [...]}
+    _anim_cache = {}
+
     def __init__(self, groups, pos, obstacles, tier):
         super().__init__(groups)
 
         info = MONSTER_DATA[tier]
-
-        self.image = pygame.Surface((TILE_SIZE, TILE_SIZE))
-        self.image.fill(info['color'])
-        self.rect = self.image.get_rect(topleft = pos)
-
+        self.tier = tier
         self.health = info['health']
-        self.speed = info['speed']
+        self.speed = info['speed'] * 60 # Convert to pixels per second
         self.damage = info['damage']
         self.notice_radius = info['notice_radius']
         self.loot_table = info['loot']
+        self.base_color = info['color']
+
+        # --- Animation setup ---
+        self.visual_size = TIER_VISUAL_SIZES.get(tier, DEFAULT_VISUAL_SIZE)
+        self.animations = self._get_animations(tier)
+        self.has_sprites = any(len(v) > 0 for v in self.animations.values())
+        self.status = 'idle'
+        self.frame_index = 0.0
+        self.animation_speed = 0.12
+        self.facing_right = True
+
+        if self.has_sprites:
+            self.image = self.animations['idle'][0]
+        else:
+            self.image = pygame.Surface(self.visual_size)
+            self.image.fill(self.base_color)
+
+        # rect is the visual boundary
+        self.rect = self.image.get_rect(topleft=pos)
+        # hitbox is the physical boundary (STRICTLY 64x64 / 1 tile as requested)
+        from settings import TILE_SIZE
+        self.hitbox = pygame.Rect(0, 0, TILE_SIZE, TILE_SIZE)
+        
+        self.is_centered = (tier != 'tier1')
+        self.is_flying = (tier == 'tier3')
+        if self.is_centered:
+            if self.is_flying:
+                self.hitbox.midbottom = self.rect.midbottom
+            else:
+                self.hitbox.center = self.rect.center
+        else:
+            self.hitbox.midbottom = self.rect.midbottom
 
         self.vulnerable = True
         self.hit_time = 0
+        self._is_flashing = False
 
-        self.pos = pygame.math.Vector2(self.rect.topleft)
+        self.pos = pygame.math.Vector2(self.hitbox.topleft)
         self.direction = pygame.math.Vector2()
-
         self.obstacle_sprites = obstacles
-
         self.start_time = 0
         self.duration = 0
-
         self.knockback = pygame.math.Vector2(0, 0)
-        self.base_color = info['color']
 
+    # ------------------------------------------------------------------
+    # Animation loading
+    # ------------------------------------------------------------------
+    @classmethod
+    def _get_animations(cls, tier):
+        if tier in cls._anim_cache:
+            return cls._anim_cache[tier]
+
+        anims = {'idle': [], 'walk': [], 'atk': [], 'ded': []}
+
+        sprite_dir_name = TIER_SPRITE_DIRS.get(tier)
+        visual_size = TIER_VISUAL_SIZES.get(tier, DEFAULT_VISUAL_SIZE)
+
+        if sprite_dir_name is None:
+            cls._anim_cache[tier] = anims
+            return anims
+
+        base = resource_path(os.path.join('assets', sprite_dir_name))
+        if not os.path.isdir(base):
+            cls._anim_cache[tier] = anims
+            return anims
+
+        # 1. Fallback / legacy prefix logic (files directly in base folder)
+        prefix_map = {
+            'idle': 'idle_',
+            'walk': 'walk_',
+            'atk':  'atk_',
+            'ded':  'ded',
+        }
+        for key, prefix in prefix_map.items():
+            files = sorted([
+                f for f in os.listdir(base)
+                if os.path.isfile(os.path.join(base, f)) and f.lower().startswith(prefix.lower()) and f.lower().endswith('.png')
+            ])
+            for fname in files:
+                try:
+                    img = pygame.image.load(os.path.join(base, fname)).convert_alpha()
+                    img = pygame.transform.scale(img, visual_size)
+                    anims[key].append(img)
+                except Exception as e:
+                    print(f"[Enemy] Could not load {fname}: {e}")
+
+        # 2. Subdirectory logic (for toimp assets)
+        folder_keywords = {
+            'idle': ['idle', 'flight'],
+            'walk': ['walk', 'run', 'flight', 'shield'], # fallback for walk
+            'atk':  ['attack', 'atk'],
+            'ded':  ['death', 'ded']
+        }
+        
+        subdirs = sorted([d for d in os.listdir(base) if os.path.isdir(os.path.join(base, d))])
+        for d in subdirs:
+            d_lower = d.lower()
+            target_keys = []
+            for k, kw_list in folder_keywords.items():
+                if any(kw in d_lower for kw in kw_list):
+                    target_keys.append(k)
+            
+            if target_keys:
+                d_path = os.path.join(base, d)
+                files = sorted([f for f in os.listdir(d_path) if f.lower().endswith('.png')])
+                loaded_imgs = []
+                for fname in files:
+                    try:
+                        img = pygame.image.load(os.path.join(d_path, fname)).convert_alpha()
+                        img = pygame.transform.scale(img, visual_size)
+                        loaded_imgs.append(img)
+                    except Exception as e:
+                        print(f"[Enemy] Could not load {fname}: {e}")
+                
+                for k in target_keys:
+                    if len(anims[k]) == 0:
+                        anims[k].extend(loaded_imgs)
+
+        # 3. Fallbacks if animations are missing
+        if not anims['walk'] and anims['idle']:
+            anims['walk'] = anims['idle'].copy()
+        if not anims['idle'] and anims['walk']:
+            anims['idle'] = anims['walk'].copy()
+
+        cls._anim_cache[tier] = anims
+        return anims
+
+    # ------------------------------------------------------------------
+    # Animation update
+    # ------------------------------------------------------------------
+    def _update_status(self, chasing: bool, is_attacking: bool = False):
+        old = self.status
+        if self.health <= 0:
+            self.status = 'ded'
+        elif is_attacking:
+            self.status = 'atk'
+        elif chasing:
+            self.status = 'walk'
+        elif self.direction.magnitude() > 0:
+            self.status = 'walk'
+        else:
+            self.status = 'idle'
+        if self.status != old:
+            self.frame_index = 0.0
+
+    def _animate(self):
+        if not self.has_sprites:
+            return
+
+        anim = self.animations.get(self.status) or self.animations['idle']
+        if not anim:
+            return
+
+        speed = 0.06 if self.status == 'ded' else self.animation_speed
+        self.frame_index += speed
+
+        if self.frame_index >= len(anim):
+            if self.status == 'ded':
+                self.frame_index = len(anim) - 1
+            else:
+                self.frame_index = 0.0
+
+        frame = anim[int(self.frame_index)]
+        if not self.facing_right:
+            frame = pygame.transform.flip(frame, True, False)
+
+        # White flash on hit
+        if self._is_flashing:
+            frame = frame.copy()
+            frame.fill((150, 150, 150, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+        self.image = frame
+
+    # ------------------------------------------------------------------
+    # Combat
+    # ------------------------------------------------------------------
     def get_damage(self, player_center, amount):
         if self.vulnerable:
             self.health -= amount
             self.vulnerable = False
             self.hit_time = pygame.time.get_ticks()
-            self.image.fill('white')
+            self._is_flashing = True
 
-            my_pos = pygame.math.Vector2(self.rect.center)
+            if not self.has_sprites:
+                self.image.fill('white')
+
+            my_pos = pygame.math.Vector2(self.hitbox.center)
             other_pos = pygame.math.Vector2(player_center)
             diff = my_pos - other_pos
+            self.knockback = diff.normalize() * 900 if diff.magnitude() != 0 else pygame.math.Vector2(0, 0) # Pixels/sec (auparavant 15px/f)
 
-            if diff.magnitude() != 0:
-                self.knockback = diff.normalize() * 15
-            else:
-                self.knockback = pygame.math.Vector2(0, 0)
-    
+    # ------------------------------------------------------------------
+    # Movement
+    # ------------------------------------------------------------------
     def patrol(self):
         current_time = pygame.time.get_ticks()
-        duration = current_time - self.start_time
-
-        if duration >= self.duration:
-            self.start_time = pygame.time.get_ticks()
+        if current_time - self.start_time >= self.duration:
+            self.start_time = current_time
             self.duration = random.randint(1000, 3000)
-
-            next_action = random.randint(1, 2)
-
-            match next_action:
-                case 1:
-                    self.direction = pygame.math.Vector2((0,0))
-                case 2:
-                    new_x = random.uniform(-1, 1)
-                    new_y = random.uniform(-1, 1)
-                    new_vect = pygame.math.Vector2((new_x, new_y))
-                    if new_vect.magnitude() != 0:
-                        new_vect = new_vect.normalize()
-                    
-                    self.direction = new_vect
+            if random.randint(1, 2) == 1:
+                self.direction = pygame.math.Vector2(0, 0)
+            else:
+                v = pygame.math.Vector2(random.uniform(-1, 1), random.uniform(-1, 1))
+                self.direction = v.normalize() if v.magnitude() != 0 else pygame.math.Vector2(0, 0)
 
     def collision(self, direction, speed):
         if direction == 'horizontal':
             for sprite in self.obstacle_sprites:
-                if sprite.rect.colliderect(self.rect):
-                    if speed > 0:
-                        self.rect.right = sprite.rect.left
-                        self.pos.x = self.rect.x
-                    if speed < 0:
-                        self.rect.left = sprite.rect.right
-                        self.pos.x = self.rect.x
-
+                if sprite.rect.colliderect(self.hitbox):
+                    if speed > 0: self.hitbox.right = sprite.rect.left; self.pos.x = self.hitbox.x
+                    if speed < 0: self.hitbox.left = sprite.rect.right; self.pos.x = self.hitbox.x
         if direction == 'vertical':
             for sprite in self.obstacle_sprites:
-                if sprite.rect.colliderect(self.rect):
-                    if speed > 0:
-                        self.rect.bottom = sprite.rect.top
-                        self.pos.y = self.rect.y
-                    if speed < 0:
-                        self.rect.top = sprite.rect.bottom
-                        self.pos.y = self.rect.y
+                if sprite.rect.colliderect(self.hitbox):
+                    if speed > 0: self.hitbox.bottom = sprite.rect.top; self.pos.y = self.hitbox.y
+                    if speed < 0: self.hitbox.top = sprite.rect.bottom; self.pos.y = self.hitbox.y
 
-    def enemy_update(self, player):
-        enemy_vect = pygame.math.Vector2(self.rect.center)
+    def enemy_update(self, player, dt, is_attacking: bool = False, speed=None):
+        enemy_vect = pygame.math.Vector2(self.hitbox.center)
         player_vect = pygame.math.Vector2(player.rect.center)
-        distance_vect = player_vect - enemy_vect
-        distance = distance_vect.magnitude()
+        diff = player_vect - enemy_vect
+        distance = diff.magnitude()
 
-        if distance < 300 and distance > 0:
-            self.direction = distance_vect.normalize()
+        chasing = distance < self.notice_radius and distance > 0
+        if chasing:
+            self.direction = diff.normalize()
+            # Update facing direction
+            self.facing_right = diff.x >= 0
         else:
             self.patrol()
 
-        self.move(self.speed)
+        self._update_status(chasing, is_attacking)
+        
+        move_speed = speed if speed is not None else self.speed
+        self.move(move_speed, dt)
 
-    def reduce_knockback(self):
-
-        self.knockback *= 0.8
-
-        if self.knockback.magnitude() < 0.5:
+    def reduce_knockback(self, dt):
+        # Équivalent à *= 0.8 par frame à 60 FPS
+        self.knockback *= (0.8 ** (dt * 60))
+        if self.knockback.magnitude() < 10:
             self.knockback = pygame.math.Vector2(0, 0)
 
-
-    def move(self, speed):
-
+    def move(self, speed, dt):
         if self.direction.magnitude() != 0:
             self.direction = self.direction.normalize()
 
-        dx = self.direction.x * speed + self.knockback.x
-        
+        dx = (self.direction.x * speed + self.knockback.x) * dt
         self.pos.x += dx
-        self.rect.x = int(self.pos.x)
-
+        self.hitbox.x = int(self.pos.x)
         self.collision('horizontal', dx)
 
-        dy = self.direction.y * speed + self.knockback.y
+        dy = (self.direction.y * speed + self.knockback.y) * dt
         self.pos.y += dy
-        self.rect.y = int(self.pos.y)
+        self.hitbox.y = int(self.pos.y)
         self.collision('vertical', dy)
 
-    def update(self):
-        self.reduce_knockback()
+        # Sync the visual rect with the physical hitbox
+        if getattr(self, 'is_centered', False):
+            if getattr(self, 'is_flying', False):
+                self.rect.midbottom = self.hitbox.midbottom
+            else:
+                self.rect.center = self.hitbox.center
+        else:
+            self.rect.midbottom = self.hitbox.midbottom
+
+    # ------------------------------------------------------------------
+    # Main update (called each frame by sprite group)
+    # ------------------------------------------------------------------
+    def update(self, dt=0.016):
+        self.reduce_knockback(dt)
         if not self.vulnerable:
             if pygame.time.get_ticks() - self.hit_time >= 400:
-                self.image.fill(self.base_color)
+                self._is_flashing = False
+                if not self.has_sprites:
+                    self.image.fill(self.base_color)
                 self.vulnerable = True
+        self._animate()

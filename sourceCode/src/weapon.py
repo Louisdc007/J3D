@@ -3,10 +3,10 @@ import pygame
 class Weapon(pygame.sprite.Sprite):
     def __init__(self, player, groups, direction):
         super().__init__(groups)
-        self.image = pygame.Surface((100, 20))
-        self.image.fill('blue')
+        self.image = pygame.Surface((60, 20), pygame.SRCALPHA)
+        self.image.fill((0, 0, 0, 0)) # Fully transparent so it doesn't show the blue rectangle anymore
 
-        distance = 30
+        distance = 15
 
         offset = direction * distance
 
@@ -17,3 +17,6 @@ class Weapon(pygame.sprite.Sprite):
 
         self.rect = self.image.get_rect()
         self.rect.center = player.rect.center + offset
+
+    def update(self, dt=0.016):
+        pass
