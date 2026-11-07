@@ -107,3 +107,40 @@ BUILDING_DATA = {
         'color': (255, 105, 180), 'size': (32, 32)
     }
 }
+
+# =====================================================================
+# --- GREED : ÉDITION ABYSSES (refonte gameplay / rendu) ---
+# =====================================================================
+GAME_VERSION = "v1.0 - Édition Abysses"
+
+# Palette globale (dark fantasy)
+GOLD = (232, 190, 92)
+GOLD_DARK = (150, 110, 40)
+BLOOD = (170, 20, 30)
+PANEL_BG = (18, 16, 24)
+PANEL_BORDER = (120, 96, 60)
+TEXT_DIM = (170, 160, 150)
+
+# Boss (donjons majeurs)
+MONSTER_DATA['boss'] = {
+    'health': 600, 'damage': 30, 'speed': 2.6, 'notice_radius': 900,
+    'color': (120, 0, 0),
+    'loot': {'xp': (40, 60), 'iron': (15, 25), 'gold': (8, 14)}
+}
+
+# Comportement de mêlée des monstres en solo : (temps d'armement ms, portée px)
+ENEMY_ATTACK_PROFILE = {
+    'tier1': (480, 72),
+    'tier2': (420, 72),
+    'tier3': (380, 260),   # Mouche : attaque à distance
+    'tier4': (380, 80),
+    'tier5': (520, 90),
+}
+
+# Compétences du joueur
+SPIN_COOLDOWN = 6000        # ms
+POTION_HEAL_RATIO = 0.45    # 45 % des PV max
+MAX_POTIONS = 5
+COMBO_WINDOW = 650          # ms pour enchaîner le coup suivant
+CRIT_BASE_CHANCE = 0.08
+MAGNET_BASE_RADIUS = 110

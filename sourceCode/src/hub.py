@@ -1,8 +1,11 @@
+import math
 import pygame
 import random
 import os
 from settings import *
 from entities.npc import NPC
+from fx import ParticleSystem, render_outlined, draw_panel, additive_glow, get_font
+from audio import sfx
 
 # Mapping des textures de bâtiments
 BUILDING_TEXTURES = {
@@ -115,7 +118,7 @@ class Hub:
         # --- MENUS BATIMENTS ---
         self.active_menu = None # 'forge', 'shop', 'bank', 'library' ou None
         self.menu_buttons = []  # Liste des boutons du menu actif
-        self.menu_rect = pygame.Rect(0, 0, 400, 300)
+        self.menu_rect = pygame.Rect(0, 0, 460, 320)
         self.menu_rect.center = (WIDTH//2, HEIGHT//2)
         self.state_lock_time = 0
         self.warning_msg = None
@@ -233,7 +236,7 @@ class Hub:
             self.menu_buttons.append({
                 'text': f"Améliorer Dégâts ({PRICES['upgrade_damage']} Or + {PRICES['upgrade_iron_cost']} Fer)",
                 'action': 'upgrade_dmg',
-                'rect': pygame.Rect(0, 0, 350, 40),
+                'rect': pygame.Rect(0, 0, 400, 40),
                 'pos': (cx, start_y)
             })
         elif b_type == 'shop':
@@ -250,7 +253,7 @@ class Hub:
                 'pos': (cx, start_y + gap)
             })
             self.menu_buttons.append({
-                'text': f"Acheter Potion ({PRICES['buy_potion']} Or)",
+                'text': f"Acheter Potion de soin ({PRICES['buy_potion']} Or)",
                 'action': 'buy_potion',
                 'rect': pygame.Rect(0, 0, 350, 40),
                 'pos': (cx, start_y + gap * 2)
@@ -305,85 +308,211 @@ class Hub:
         for btn in self.menu_buttons:
             btn['rect'].center = btn['pos']
 
-    def draw(self):
-        # Fond : tiler la texture d'herbe au lieu d'un aplat vert
+    # ------------------------------------------------------------------
+    # Rendu du village
+    # ------------------------------------------------------------------
+    def _build_static_background(self):
+        bg = pygame.Surface((WIDTH, HEIGHT))
         if self.grass_tile:
             tile_w, tile_h = self.grass_tile.get_size()
             for x in range(0, WIDTH, tile_w):
                 for y in range(0, HEIGHT, tile_h):
-                    self.display_surface.blit(self.grass_tile, (x, y))
+                    bg.blit(self.grass_tile, (x, y))
         else:
-            self.display_surface.fill((34, 139, 34))
-        self.draw_environment()
-        for sprite in self.path_sprites: self.display_surface.blit(sprite.image, sprite.rect)
+            bg.fill((34, 139, 34))
+        target = self.display_surface
+        self.display_surface = bg
+        self.draw_environment(static_only=True)
+        self.display_surface = target
+        return bg
+
+    @staticmethod
+    def day_tint(hour):
+        """Couleur multipliée sur la scène selon l'heure (aube, jour, crépuscule, nuit)."""
+        keys = [(0, (70, 80, 140)), (5, (80, 85, 150)), (6.5, (255, 190, 160)), (8.5, (255, 255, 255)),
+                (16, (255, 255, 255)), (18, (255, 200, 150)), (19.5, (190, 120, 140)), (20.5, (90, 90, 160)),
+                (24, (70, 80, 140))]
+        for i in range(len(keys) - 1):
+            h0, c0 = keys[i]
+            h1, c1 = keys[i + 1]
+            if h0 <= hour <= h1:
+                k = (hour - h0) / (h1 - h0)
+                return tuple(int(c0[j] + (c1[j] - c0[j]) * k) for j in range(3))
+        return (255, 255, 255)
+
+    def draw(self, hour=12.0, dt=1 / 60):
+        if not hasattr(self, '_bg'):
+            self._bg = self._build_static_background()
+            self.particles = ParticleSystem()
+            self.t = 0.0
+            self.ember_t = 0.0
+            self.fireflies = [[random.uniform(0, WIDTH), random.uniform(0, HEIGHT - 200), random.uniform(0, 6.28)]
+                              for _ in range(28)]
+        self.t += dt
+        surf = self.display_surface
+        surf.blit(self._bg, (0, 0))
+        mouse_pos = pygame.mouse.get_pos()
+
+        for sprite in self.path_sprites: surf.blit(sprite.image, sprite.rect)
+        self.draw_landmarks(mouse_pos)
         if not self.build_mode_active and not self.paused_ui_active() and not self.active_menu: self.npc_sprites.update()
-        for sprite in self.npc_sprites: self.display_surface.blit(sprite.image, sprite.rect)
-        for sprite in self.building_sprites:
-            self.display_surface.blit(sprite.image, sprite.rect)
-            label_surf = pygame.font.Font(None, 20).render(sprite.name, True, (255,255,255))
-            label_rect = label_surf.get_rect(midbottom=sprite.rect.midtop)
-            self.display_surface.blit(label_surf, label_rect)
+
+        # Bâtiments et villageois triés en profondeur
+        drawables = list(self.building_sprites) + list(self.npc_sprites)
+        drawables.sort(key=lambda sp: sp.rect.bottom)
+        for sprite in drawables:
+            if sprite in self.building_sprites:
+                shadow = pygame.Surface((sprite.rect.width + 10, 18), pygame.SRCALPHA)
+                pygame.draw.ellipse(shadow, (0, 0, 0, 80), shadow.get_rect())
+                surf.blit(shadow, (sprite.rect.x - 5, sprite.rect.bottom - 10))
+                surf.blit(sprite.image, sprite.rect)
+                hovered = (sprite.rect.collidepoint(mouse_pos) and not self.paused_ui_active()
+                           and not self.build_mode_active and sprite.type in ('forge', 'shop', 'bank', 'library'))
+                pygame.draw.rect(surf, GOLD if hovered else (40, 30, 20), sprite.rect, 3 if hovered else 2)
+                label = render_outlined(sprite.name, 17, GOLD if hovered else (240, 230, 210), width=2, bold=True)
+                surf.blit(label, label.get_rect(midbottom=(sprite.rect.centerx, sprite.rect.top - 2)))
+            else:
+                sprite.draw(surf)
+
+        # Ambiance jour / nuit
+        tint = self.day_tint(hour)
+        darkness = 1 - sum(tint) / (3 * 255)
+        if tint != (255, 255, 255):
+            overlay = pygame.Surface((WIDTH, HEIGHT))
+            overlay.fill(tint)
+            surf.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        self.draw_campfire(dt, darkness)
+        if darkness > 0.15:
+            # fenêtres éclairées et lucioles
+            for b in self.building_sprites:
+                if b.type != 'path':
+                    additive_glow(surf, b.rect.centerx, b.rect.centery, 50, (int(120 * darkness), int(80 * darkness), int(20 * darkness)))
+            for ff in self.fireflies:
+                ff[2] += dt
+                ff[0] += math.cos(ff[2] * 0.7) * 20 * dt
+                ff[1] += math.sin(ff[2] * 1.3) * 14 * dt
+                a = 0.5 + 0.5 * math.sin(ff[2] * 3)
+                additive_glow(surf, int(ff[0]), int(ff[1]), 10, (int(160 * a * darkness), int(220 * a * darkness), int(60 * a * darkness)))
+        self.particles.update(dt)
+        self.particles.draw(surf, 0, 0, glow_pass=False)
+        self.particles.draw(surf, 0, 0, glow_pass=True)
 
         if self.night_arrived: self.draw_night_arrived_menu()
         elif self.waiting_for_night: self.draw_wait_night_menu()
         elif self.menu_state == 'dungeon': self.draw_dungeon_menu()
-        
-        # Gestion affichage Menu Bâtiment
+
         if self.active_menu:
             self.draw_active_menu()
-        
-        # Gestion affichage Construction (seulement si pas d'autre menu)
+
         if not self.night_arrived and not self.waiting_for_night and self.menu_state is None and not self.active_menu:
             if self.build_mode_active:
                 self.draw_build_mode_ui()
                 if self.selected_blueprint: self.draw_placement_preview()
             else:
-                pygame.draw.rect(self.display_surface, (200, 150, 50), self.btn_open_build, border_radius=5)
-                pygame.draw.rect(self.display_surface, (255, 255, 255), self.btn_open_build, 2, border_radius=5)
-                self.draw_text("CONSTRUIRE", self.btn_open_build.center)
+                from menu_scene import draw_button
+                draw_button(surf, self.btn_open_build, "CONSTRUIRE", self.btn_open_build.collidepoint(mouse_pos),
+                            size=22, t=self.t)
 
-        # Affichage des alertes à l'écran
         if self.warning_msg and pygame.time.get_ticks() < self.warning_timer:
             self.draw_warning_banner()
 
+    def draw_campfire(self, dt, darkness):
+        cx, cy = self.campfire_rect.center
+        surf = self.display_surface
+        flick = 1 + 0.08 * math.sin(self.t * 13) + 0.05 * math.sin(self.t * 29)
+        strength = 0.35 + 0.65 * darkness
+        additive_glow(surf, cx, cy, int(150 * flick * (0.6 + darkness)),
+                      (int(150 * strength), int(80 * strength), int(20 * strength)))
+        # bûches
+        pygame.draw.line(surf, (90, 50, 25), (cx - 18, cy + 10), (cx + 18, cy + 2), 7)
+        pygame.draw.line(surf, (70, 40, 20), (cx - 18, cy + 2), (cx + 18, cy + 10), 7)
+        for i in range(8):
+            a = i / 8 * math.tau
+            pygame.draw.circle(surf, (100, 95, 90), (int(cx + math.cos(a) * 24), int(cy + 8 + math.sin(a) * 10)), 5)
+        # flammes
+        for i, (w, h, col) in enumerate([(26, 34, (255, 110, 30)), (18, 26, (255, 180, 60)), (9, 15, (255, 245, 190))]):
+            hh = h * (1 + 0.15 * math.sin(self.t * (10 + i * 3)))
+            pygame.draw.ellipse(surf, col, (cx - w // 2 + math.sin(self.t * 7 + i) * 2, cy + 6 - hh, w, hh))
+        self.ember_t += dt
+        if self.ember_t > 0.06:
+            self.ember_t = 0
+            self.particles.embers(cx, cy - 10, 1, spread_x=8)
+
+    def draw_landmarks(self, mouse_pos):
+        """Tente, feu de camp et porte de l'expédition (dessinés, interactifs)."""
+        surf = self.display_surface
+        idle = not self.paused_ui_active() and not self.build_mode_active
+        # --- Tente ---
+        t = self.tent_rect
+        hov = idle and t.collidepoint(mouse_pos)
+        shadow = pygame.Surface((t.width + 20, 22), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, 90), shadow.get_rect())
+        surf.blit(shadow, (t.x - 10, t.bottom - 12))
+        pygame.draw.polygon(surf, (120, 40, 40), [(t.left, t.bottom), (t.centerx, t.top), (t.right, t.bottom)])
+        pygame.draw.polygon(surf, (165, 60, 50), [(t.left + 10, t.bottom), (t.centerx, t.top + 6), (t.centerx, t.bottom)])
+        pygame.draw.polygon(surf, (40, 15, 15), [(t.centerx - 14, t.bottom), (t.centerx, t.top + 30), (t.centerx + 14, t.bottom)])
+        pygame.draw.line(surf, (80, 60, 40), (t.centerx, t.top - 8), (t.centerx, t.top + 4), 3)
+        pygame.draw.polygon(surf, GOLD if hov else (60, 20, 20),
+                            [(t.left, t.bottom), (t.centerx, t.top), (t.right, t.bottom)], 2)
+        if hov:
+            lab = render_outlined("Se reposer (soin + passer la journée)", 16, GOLD, width=2)
+            surf.blit(lab, lab.get_rect(midbottom=(t.centerx, t.top - 10)))
+        # --- Porte de l'expédition ---
+        g = self.gate_rect
+        hov = idle and g.collidepoint(mouse_pos)
+        pygame.draw.rect(surf, (70, 66, 72), (g.x - 14, g.y - 34, 30, g.height + 34))
+        pygame.draw.rect(surf, (70, 66, 72), (g.right - 16, g.y - 34, 30, g.height + 34))
+        pygame.draw.rect(surf, (95, 90, 100), (g.x - 20, g.y - 46, g.width + 40, 18))
+        for x in range(g.x - 20, g.right + 20, 20):
+            pygame.draw.line(surf, (60, 56, 64), (x, g.y - 46), (x, g.y - 28), 1)
+        door = g.inflate(-30, 0)
+        pygame.draw.rect(surf, (25, 15, 30), door)
+        k = 0.5 + 0.5 * math.sin(getattr(self, 't', 0) * 2)
+        additive_glow(surf, door.centerx, door.centery, int(60 + 20 * k), (60, 30, 90))
+        for x in range(door.x, door.right, 16):
+            pygame.draw.line(surf, (90, 60, 35), (x, door.y), (x, door.bottom), 2)
+        pygame.draw.rect(surf, GOLD if hov else (40, 30, 25), g.inflate(4, 4), 2)
+        lab = render_outlined("EXPÉDITION", 20, GOLD if hov else (235, 225, 210), width=2, bold=True)
+        surf.blit(lab, lab.get_rect(center=g.center))
+
     def show_warning(self, msg):
         self.warning_msg = msg
+        self.warning_color = (255, 110, 100)
         self.warning_timer = pygame.time.get_ticks() + 2000
+        sfx('ui_click', 0.6)
+
+    def show_info(self, msg):
+        self.warning_msg = msg
+        self.warning_color = (140, 255, 160)
+        self.warning_timer = pygame.time.get_ticks() + 2200
 
     def draw_warning_banner(self):
-        txt_surf = pygame.font.Font(UI_FONT, 20).render(self.warning_msg, True, (255, 100, 100))
-        txt_rect = txt_surf.get_rect(center=(WIDTH // 2, HEIGHT - 120 if self.active_menu else HEIGHT // 2 + 180))
-        bg_rect = txt_rect.inflate(30, 15)
-        pygame.draw.rect(self.display_surface, (30, 20, 20), bg_rect, border_radius=5)
-        pygame.draw.rect(self.display_surface, (255, 100, 100), bg_rect, 2, border_radius=5)
+        col = getattr(self, 'warning_color', (255, 110, 100))
+        txt_surf = render_outlined(self.warning_msg, 22, col, width=2, bold=True)
+        txt_rect = txt_surf.get_rect(center=(WIDTH // 2, self.menu_rect.bottom + 34 if self.active_menu else HEIGHT // 2 + 180))
+        bg_rect = txt_rect.inflate(34, 16)
+        pygame.draw.rect(self.display_surface, (20, 14, 18), bg_rect, border_radius=6)
+        pygame.draw.rect(self.display_surface, col, bg_rect, 2, border_radius=6)
         self.display_surface.blit(txt_surf, txt_rect)
 
     def draw_active_menu(self):
-        # Fond sombre flou
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 150))
+        overlay.fill((0, 0, 0, 160))
         self.display_surface.blit(overlay, (0, 0))
-        
-        # Fenêtre
-        pygame.draw.rect(self.display_surface, (40, 40, 50), self.menu_rect, border_radius=10)
-        pygame.draw.rect(self.display_surface, (200, 200, 200), self.menu_rect, 3, border_radius=10)
-        
-        # Titre
+        draw_panel(self.display_surface, self.menu_rect, alpha=240, radius=12)
         title_txt = BUILDING_DATA[self.active_menu]['name'].upper()
-        if self.active_menu == 'bank': title_txt += f" (Fer: {self.banked_iron} | Or: {self.banked_gold}) - Taxe: 2%/j"
-        self.draw_text(title_txt, (self.menu_rect.centerx, self.menu_rect.top + 30), font=self.title_font, color=(255, 215, 0))
-        
-        # Boutons
+        self.draw_text(title_txt, (self.menu_rect.centerx, self.menu_rect.top + 30), font=self.title_font, color=GOLD)
+        if self.active_menu == 'bank':
+            self.draw_text(f"En coffre : {self.banked_iron} Fer  ·  {self.banked_gold} Or   (taxe 2 %/jour)",
+                           (self.menu_rect.centerx, self.menu_rect.top + 58), size=17, color=TEXT_DIM)
         mouse_pos = pygame.mouse.get_pos()
         for btn in self.menu_buttons:
             rect = btn['rect']
-            color = (80, 80, 100)
-            if rect.collidepoint(mouse_pos):
-                color = (100, 100, 140)
-            
-            pygame.draw.rect(self.display_surface, color, rect, border_radius=5)
-            pygame.draw.rect(self.display_surface, (200, 200, 200), rect, 2, border_radius=5)
-            self.draw_text(btn['text'], rect.center, size=18)
+            hov = rect.collidepoint(mouse_pos)
+            close = btn['action'] == 'close_menu'
+            pygame.draw.rect(self.display_surface, (70, 40, 40) if close and hov else ((60, 52, 40) if hov else (32, 28, 38)), rect, border_radius=6)
+            pygame.draw.rect(self.display_surface, GOLD if hov else PANEL_BORDER, rect, 2, border_radius=6)
+            self.draw_text(btn['text'], rect.center, size=18, color=(255, 245, 225) if hov else (215, 205, 190))
 
     def paused_ui_active(self):
         return self.night_arrived or self.waiting_for_night or self.menu_state is not None or self.active_menu is not None
@@ -391,15 +520,10 @@ class Hub:
     def check_click(self, pos, player):
         now = pygame.time.get_ticks()
         if now < self.state_lock_time:
-            print(f"  [CLICK LOCKED] Click ignored because lock timer active until {self.state_lock_time}")
             return None
         
-        print(f"[HUB CLICK] pos={pos}, active_menu={self.active_menu}, build_mode={self.build_mode_active}")
         # 1. Priorité absolue : Menu Bâtiment Actif
         if self.active_menu:
-            print(f"  Checking active menu buttons...")
-            for i, btn in enumerate(self.menu_buttons):
-                print(f"    Menu Button {i} ({btn['action']}): rect={btn['rect']}, collides={btn['rect'].collidepoint(pos)}")
             for btn in self.menu_buttons:
                 if btn['rect'].collidepoint(pos):
                     action = btn['action']
@@ -486,18 +610,17 @@ class Hub:
                             print("Pas assez d'or !")
                         
                     elif action == 'buy_potion':
-                        if player.health < player.max_health:
+                        if player.potions < MAX_POTIONS:
                             if player.inventory['gold'] >= PRICES['buy_potion']:
                                 player.inventory['gold'] -= PRICES['buy_potion']
-                                player.health = min(player.health + 50, player.max_health)
-                                print("Potion achetée et bue !")
+                                player.potions += 1
+                                self.show_info(f"Potion achetée ({player.potions}/{MAX_POTIONS}) - touche R en donjon")
+                                sfx('potion', 0.6)
                                 return "save"
                             else:
                                 self.show_warning("Pas assez d'or !")
-                                print("Pas assez d'or !")
                         else:
-                            self.show_warning("Points de vie au maximum.")
-                            print("Points de vie au maximum.")
+                            self.show_warning(f"Sacoche pleine ({MAX_POTIONS} potions max).")
                         
                     elif action == 'study':
                         cost_g = PRICES['study_gold']
@@ -618,10 +741,8 @@ class Hub:
 
         # 4. Mode Normal (Interaction Batiments)
         else:
-            print("  Checking normal interactions...")
             # On vérifie si on clique sur un batiment construit
             for b_sprite in self.building_sprites:
-                print(f"    Building {b_sprite.name} (type={b_sprite.type}): rect={b_sprite.rect}, collides={b_sprite.rect.collidepoint(pos)}")
                 if b_sprite.rect.collidepoint(pos):
                     print(f"Clic sur {b_sprite.name}")
                     # On vérifie si ce batiment a un menu
@@ -631,9 +752,6 @@ class Hub:
                         return None
 
             # Autres intéractions
-            print(f"    Gate: rect={self.gate_rect}, collides={self.gate_rect.collidepoint(pos)}")
-            print(f"    Tent: rect={self.tent_rect}, collides={self.tent_rect.collidepoint(pos)}")
-            print(f"    Build Button: rect={self.btn_open_build}, collides={self.btn_open_build.collidepoint(pos)}")
             if self.gate_rect.collidepoint(pos):
                 self.state_lock_time = pygame.time.get_ticks() + 300
                 self.menu_state = 'dungeon'
@@ -666,7 +784,7 @@ class Hub:
             
         print(f"[Banque] Les taxes journalières ont été perçues (2%).")
 
-    def draw_environment(self):
+    def draw_environment(self, static_only=True):
         path_color = (160, 130, 90)
         radius = 100
         cx, cy = self.center_x, self.center_y
@@ -712,11 +830,6 @@ class Hub:
             pygame.draw.circle(self.display_surface, path_color, (cx, cy), radius)
             pygame.draw.line(self.display_surface, path_color, (cx, cy), self.gate_rect.center, 60)
         
-        pygame.draw.rect(self.display_surface, (65, 105, 225), self.tent_rect, border_radius=10)
-        self.draw_text("Repos", self.tent_rect.center, size=15)
-        pygame.draw.circle(self.display_surface, (255, 69, 0), self.campfire_rect.center, 20)
-        pygame.draw.rect(self.display_surface, (139, 69, 19), self.gate_rect, border_radius=5)
-        self.draw_text("EXPEDITION", self.gate_rect.center, color=(240, 240, 240))
 
     def draw_build_mode_ui(self):
         s = pygame.Surface((WIDTH, self.panel_height))
@@ -809,34 +922,38 @@ class Hub:
         text_rect = text_surf.get_rect(center=pos)
         self.display_surface.blit(text_surf, text_rect)
 
-    def draw_overlay(self, title):
+    def draw_overlay(self, title, subtitle=None):
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 200))
+        overlay.fill((4, 2, 10, 200))
         self.display_surface.blit(overlay, (0, 0))
-        self.draw_text(title, (self.center_x, 150), font=self.title_font)
-        
+        t = render_outlined(title, 52, GOLD, width=3, bold=True)
+        self.display_surface.blit(t, t.get_rect(center=(self.center_x, 150)))
+        if subtitle:
+            st = render_outlined(subtitle, 22, (220, 210, 195), width=2)
+            self.display_surface.blit(st, st.get_rect(center=(self.center_x, 200)))
+
+    def _menu_btn(self, rect, text, danger=False):
+        from menu_scene import draw_button
+        draw_button(self.display_surface, rect, text, rect.collidepoint(pygame.mouse.get_pos()), danger=danger,
+                    size=22, t=getattr(self, 't', 0))
+
     def draw_dungeon_menu(self):
-        self.draw_overlay("DESTINATION")
-        pygame.draw.rect(self.display_surface, (100, 100, 200), self.btn_random)
-        self.draw_text("Donjon Aléatoire", self.btn_random.center)
-        pygame.draw.rect(self.display_surface, (200, 50, 50), self.btn_main_dungeons)
-        self.draw_text("Majeur (Artefact)", self.btn_main_dungeons.center)
-        self.draw_text("(Clic ailleurs pour annuler)", (self.center_x, self.center_y + 150), size=16)
+        self.draw_overlay("DESTINATION", "Les donjons ne s'ouvrent qu'à la nuit tombée")
+        self._menu_btn(self.btn_random, "Donjon aléatoire")
+        self._menu_btn(self.btn_main_dungeons, "Donjon majeur (Gardien)", danger=True)
+        self.draw_text("Aléatoire : butin et XP, rentrez avant l'aube.", (self.center_x, self.center_y + 110), size=16, color=TEXT_DIM)
+        self.draw_text("Majeur : affrontez un Gardien pour lui arracher un Artefact (4 requis).", (self.center_x, self.center_y + 132), size=16, color=TEXT_DIM)
+        self.draw_text("(Clic ailleurs pour annuler)", (self.center_x, self.center_y + 170), size=15, color=(150, 140, 130))
 
     def draw_wait_night_menu(self):
-        self.draw_overlay("ATTENDRE LA NUIT")
-        self.draw_text("Les donjons ne sont ouverts que la nuit.", (self.center_x, self.center_y - 80), size=16)
-        pygame.draw.rect(self.display_surface, (100, 200, 100), self.btn_wait_night, border_radius=5)
-        self.draw_text("Attendre la nuit", self.btn_wait_night.center)
-        pygame.draw.rect(self.display_surface, (200, 100, 100), self.btn_go_now, border_radius=5)
-        self.draw_text("Annuler", self.btn_go_now.center)
+        self.draw_overlay("ATTENDRE LA NUIT", "Les donjons ne sont ouverts que la nuit.")
+        self._menu_btn(self.btn_wait_night, "Attendre la nuit")
+        self._menu_btn(self.btn_go_now, "Annuler", danger=True)
 
     def draw_night_arrived_menu(self):
-        self.draw_overlay("LA NUIT EST TOMBÉE")
-        pygame.draw.rect(self.display_surface, (100, 200, 100), self.btn_rest_night, border_radius=5)
-        self.draw_text("Se reposer", self.btn_rest_night.center, size=14)
-        pygame.draw.rect(self.display_surface, (100, 100, 200), self.btn_explore_night, border_radius=5)
-        self.draw_text("Explorer", self.btn_explore_night.center, size=14)
+        self.draw_overlay("LA NUIT EST TOMBÉE", "Le village s'endort... mais les donjons s'éveillent.")
+        self._menu_btn(self.btn_rest_night, "Se reposer")
+        self._menu_btn(self.btn_explore_night, "Partir en expédition", danger=True)
 
     def get_save_data(self): 
         return {

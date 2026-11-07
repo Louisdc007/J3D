@@ -6,12 +6,12 @@ class NPC(pygame.sprite.Sprite):
     def __init__(self, groups, pos, obstacles):
         super().__init__(groups)
         
-        self.image = pygame.Surface((14, 28))
-        
-        colors = [(180, 90, 90), (90, 180, 90), (90, 90, 180), (180, 180, 80), (150, 100, 50)]
-        self.image.fill(random.choice(colors))
-        
-        pygame.draw.rect(self.image, (0,0,0), (4, 4, 2, 2))
+        self.image = pygame.Surface((14, 28), pygame.SRCALPHA)
+        colors = [(150, 60, 60), (70, 120, 70), (70, 80, 140), (160, 140, 60), (120, 80, 50), (110, 70, 130)]
+        self.shirt = random.choice(colors)
+        self.skin = random.choice([(240, 200, 170), (210, 160, 120), (160, 110, 80), (110, 75, 55)])
+        self.hair = random.choice([(50, 35, 20), (120, 80, 30), (20, 20, 20), (200, 180, 120), (150, 150, 150)])
+        self.walk_t = random.uniform(0, 6)
         
         self.rect = self.image.get_rect(topleft=pos)
         self.pos = pygame.math.Vector2(self.rect.topleft)
@@ -87,3 +87,29 @@ class NPC(pygame.sprite.Sprite):
         self.patrol()
         self.check_boundaries()
         self.move()
+        if self.direction.magnitude() != 0:
+            self.walk_t += 0.25
+
+    def draw(self, surface):
+        import math
+        x, y = self.rect.midbottom
+        moving = self.direction.magnitude() != 0
+        step = math.sin(self.walk_t) * 3 if moving else 0
+        bob = abs(math.sin(self.walk_t)) * 1.5 if moving else 0
+        sh = pygame.Surface((18, 6), pygame.SRCALPHA)
+        pygame.draw.ellipse(sh, (0, 0, 0, 90), sh.get_rect())
+        surface.blit(sh, (x - 9, y - 3))
+        # jambes
+        pygame.draw.line(surface, (50, 40, 35), (x - 3, y - 9), (x - 3 + step, y - 1), 3)
+        pygame.draw.line(surface, (50, 40, 35), (x + 3, y - 9), (x + 3 - step, y - 1), 3)
+        # corps
+        body = pygame.Rect(0, 0, 12, 12)
+        body.midbottom = (x, y - 8 - bob)
+        pygame.draw.rect(surface, self.shirt, body, border_radius=3)
+        pygame.draw.rect(surface, tuple(max(0, c - 50) for c in self.shirt), body, 1, border_radius=3)
+        # tête
+        hx, hy = x, int(body.top - 5)
+        pygame.draw.circle(surface, self.skin, (hx, hy), 5)
+        pygame.draw.arc(surface, self.hair, (hx - 5, hy - 6, 10, 9), 0, math.pi, 3)
+        facing = 1 if self.direction.x >= 0 else -1
+        surface.fill((20, 20, 20), (hx + facing * 2, hy - 1, 1, 2))

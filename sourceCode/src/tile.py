@@ -113,11 +113,51 @@ class Floor(pygame.sprite.Sprite):
                 print(f"Error loading floor decor {filename}: {e}")
 
 class DungeonEntrance(pygame.sprite.Sprite):
+    """Portail de retour au village : vortex animé + lumière.
+    `rect` (64x64) reste la zone d'extraction utilisée par le jeu."""
+    _frames = None
+    SIZE = 128
+
     def __init__(self, pos, groups):
         super().__init__(groups)
-        self.image = pygame.surface.Surface((TILE_SIZE, TILE_SIZE))
-        self.image.fill((0, 255, 0))  # Vert vif pour l'entrée
-        self.rect = self.image.get_rect(topleft = pos)
+        if DungeonEntrance._frames is None:
+            DungeonEntrance._frames = [self._make_frame(i / 32) for i in range(32)]
+        self.frame = 0.0
+        self.image = DungeonEntrance._frames[0]
+        self.rect = pygame.Rect(pos[0], pos[1], TILE_SIZE, TILE_SIZE)
+        self.draw_rect = self.image.get_rect(center=self.rect.center)
+        self.is_portal = True
+
+    @classmethod
+    def _make_frame(cls, t):
+        import math
+        S = cls.SIZE
+        s = pygame.Surface((S, S), pygame.SRCALPHA)
+        c = S // 2
+        # anneau de pierre runique
+        pygame.draw.ellipse(s, (40, 36, 48), (6, 30, S - 12, S - 60))
+        pygame.draw.ellipse(s, (85, 80, 100), (6, 30, S - 12, S - 60), 4)
+        # vortex : bras spiralés
+        for arm in range(4):
+            for k in range(26):
+                u = k / 26
+                ang = t * math.tau + arm * math.tau / 4 + u * 4.0
+                r = 6 + u * (c - 20)
+                x = c + math.cos(ang) * r
+                y = c + math.sin(ang) * r * 0.55
+                col = (int(90 + 120 * (1 - u)), int(60 + 180 * (1 - u)), 255, int(255 * (1 - u * 0.7)))
+                pygame.draw.circle(s, col, (int(x), int(y)), max(1, int(6 * (1 - u)) + 1))
+        pygame.draw.ellipse(s, (230, 240, 255, 230), (c - 9, c - 5, 18, 10))
+        # runes clignotantes autour
+        for i in range(8):
+            ang = i / 8 * math.tau
+            x = c + math.cos(ang) * (c - 10)
+            y = c + math.sin(ang) * (c - 34)
+            a = int(140 + 115 * math.sin(t * math.tau * 2 + i))
+            pygame.draw.circle(s, (120, 200, 255, max(0, a)), (int(x), int(y)), 3)
+        return s
 
     def update(self, dt=0.016):
-        pass
+        self.frame = (self.frame + dt * 20) % len(DungeonEntrance._frames)
+        self.image = DungeonEntrance._frames[int(self.frame)]
+        self.draw_rect = self.image.get_rect(center=self.rect.center)

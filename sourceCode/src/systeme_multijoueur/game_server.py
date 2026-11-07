@@ -77,12 +77,13 @@ class GameServer:
         self.spawn_x = spawn_grid[0] * TILE_SIZE
         self.spawn_y = spawn_grid[1] * TILE_SIZE
 
-        for y, row in enumerate(map_data):
-            for x, col in enumerate(row):
-                if col == 'x':
-                    self.obstacles.append(SharedObstacle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE, "black"))
-                elif col == ' ':
-                    self.floor_tiles.append({'x': x * TILE_SIZE, 'y': y * TILE_SIZE})
+        # Seuls les murs bordant le sol sont envoyés (≈ 6x moins de données réseau)
+        from dungeon import split_cells
+        floor_cells, wall_cells = split_cells(map_data)
+        for (x, y) in wall_cells:
+            self.obstacles.append(SharedObstacle(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE, "black"))
+        for (x, y) in floor_cells:
+            self.floor_tiles.append({'x': x * TILE_SIZE, 'y': y * TILE_SIZE})
 
         available_monsters = ['tier1']
         if self.current_level >= 2: available_monsters.append('tier2')
