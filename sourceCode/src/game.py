@@ -622,6 +622,7 @@ class Game(GameFeatures):
                     if self.is_player_at_entrance():
                         self.transition_text = "Retour réussi"
                         self.transition_sub = self.run_report()
+                        self.contract_event('extract', iron=self.run_stats.get('iron', 0))
                     else:
                         self.transition_text = "Sauvé de justesse... mais tout est perdu"
                         self.transition_sub = "Seuls ceux qui rejoignent le portail avant l'aube gardent leur butin."
@@ -713,8 +714,12 @@ class Game(GameFeatures):
         elif self.multi_state == 'waiting_others':
             action = 'ready_next'
         elif getattr(self, 'request_start', False):
+            # La demande reste active tant que le serveur n'a pas lancé la partie :
+            # le thread réseau envoie à son rythme et pouvait rater une demande d'une seule image.
             action = 'start_game'
-            self.request_start = False
+            srv = self.multi_server_data_cache or {}
+            if srv.get('state') == 'PLAYING' or self.game_state != 'multi_lobby':
+                self.request_start = False
         
         if self.player.health <= 0 and self.multi_state not in ['gameover', 'resting']:
             action = 'player_died'
@@ -1025,7 +1030,8 @@ class Game(GameFeatures):
         return (self.morning_hour + 24 * ratio) % 24
 
     def draw_overlays_and_flip(self, cursor=False):
-        fx.draw_screen(self.screen)
+        if not (self.game_state == 'hub' and self.hub.paused_ui_active()):
+            fx.draw_screen(self.screen)
         if self.perk_screen is not None:
             self.perk_screen.draw(self.screen, self.dt)
         if self.transition_active: self.draw_fade_transition()
@@ -1050,7 +1056,7 @@ class Game(GameFeatures):
         elif self.game_state == 'victory': pygame.mouse.set_visible(True); self.draw_victory()
 
         elif self.game_state == 'hub':
-            self.hub.draw(self.hub_hour(), self.dt)
+            self.hub.draw(self.hub_hour(), self.dt, self.player)
             self.ui.display(self.player, self.game_time, self.full_day_duration, self.morning_hour,
                             show_inventory=not self.hub.build_mode_active, mode='hub', dt=self.dt)
             self.draw_overlays_and_flip()

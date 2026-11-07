@@ -83,6 +83,9 @@ class Player(pygame.sprite.Sprite):
         self.pending_perks = 0
         self.phoenix_used = False
         self.stats = {'kills': 0, 'deaths': 0, 'bosses': 0, 'expeditions': 0, 'chests': 0, 'best_combo': 0}
+        self.upgrades = {'armor': 0, 'sharp': 0}   # améliorations de la forge
+        self.buffs = {}                            # bénédictions d'autel : nom -> fin (ms)
+        self.poisoned_until = 0
 
         # Évènements consommés par le jeu (effets, sons...)
         self.events = []
@@ -93,17 +96,39 @@ class Player(pygame.sprite.Sprite):
     def perk(self, pid):
         return self.perks.get(pid, 0)
 
+    def has_buff(self, name):
+        return pygame.time.get_ticks() < self.buffs.get(name, 0)
+
+    def add_buff(self, name, seconds):
+        self.buffs[name] = pygame.time.get_ticks() + int(seconds * 1000)
+
+    def buff_remaining(self, name):
+        return max(0.0, (self.buffs.get(name, 0) - pygame.time.get_ticks()) / 1000)
+
+    @property
+    def poisoned(self):
+        return pygame.time.get_ticks() < self.poisoned_until
+
+    def apply_poison(self, seconds=3.0):
+        if self.is_dashing or self.health <= 0:
+            return
+        self.poisoned_until = max(self.poisoned_until, pygame.time.get_ticks() + int(seconds * 1000))
+
+    @property
+    def armor_ratio(self):
+        return min(0.6, 0.08 * self.upgrades.get('armor', 0))
+
     @property
     def damage_mult(self):
-        return 1 + 0.15 * self.perk('force')
+        return (1 + 0.15 * self.perk('force')) * (1.5 if self.has_buff('rage') else 1)
 
     @property
     def crit_chance(self):
-        return CRIT_BASE_CHANCE + 0.08 * self.perk('crit')
+        return CRIT_BASE_CHANCE + 0.08 * self.perk('crit') + 0.05 * self.upgrades.get('sharp', 0)
 
     @property
     def speed_mult(self):
-        return 1 + 0.08 * self.perk('swift')
+        return (1 + 0.08 * self.perk('swift')) * (1.3 if self.has_buff('haste') else 1)
 
     @property
     def effective_dash_cooldown(self):
@@ -403,7 +428,7 @@ class Player(pygame.sprite.Sprite):
         """Applique des dégâts. Retourne le montant réellement subi (0 si esquivé)."""
         if not self.vulnerable or self.health <= 0 or self.is_dashing:
             return 0
-        amount = int(amount)
+        amount = max(1, int(round(amount * (1 - self.armor_ratio))))
         if self.health - amount <= 0 and self.perk('phoenix') and not self.phoenix_used:
             self.phoenix_used = True
             self.health = max(1, int(self.max_health * 0.4))
@@ -494,6 +519,7 @@ class Player(pygame.sprite.Sprite):
             'perks': self.perks,
             'pending_perks': self.pending_perks,
             'stats': self.stats,
+            'upgrades': self.upgrades,
         }
 
     def load_save_data(self, data):
@@ -510,3 +536,4 @@ class Player(pygame.sprite.Sprite):
         self.perks = dict(data.get('perks', {}))
         self.pending_perks = data.get('pending_perks', 0)
         self.stats.update(data.get('stats', {}))
+        self.upgrades.update(data.get('upgrades', {}))

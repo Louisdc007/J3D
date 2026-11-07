@@ -100,6 +100,11 @@ class Enemy(pygame.sprite.Sprite):
         self.ai_timer = 0.0
         self.attack_cd = random.uniform(0.2, 0.8)
         self.ranged = (tier == 'tier3')
+        self.charger = (tier == 'tier5')          # les gobelins chargent
+        self.shielded = (tier == 'tier4')         # les squelettes parent
+        self.charge_cd = random.uniform(2.0, 4.0)
+        self.charge_dir = pygame.math.Vector2(1, 0)
+        self.charge_hit = False
         self.awake = False
         self.content_box = Enemy._bbox_cache.get(tier)
 
@@ -289,11 +294,18 @@ class Enemy(pygame.sprite.Sprite):
             power = 900 * (1 - self.knockback_resist)
             self.knockback = diff.normalize() * power if diff.magnitude() != 0 else pygame.math.Vector2(0, 0)
             # un coup interrompt l'armement d'une attaque (sauf élites / boss)
-            if self.ai_state == 'windup' and self.knockback_resist < 0.3:
+            if self.ai_state in ('windup', 'charge_windup') and self.knockback_resist < 0.3:
                 self.ai_state = 'recover'
                 self.ai_timer = 0.3
             return True
         return False
+
+    def try_block(self, attacker_center, attack_kind):
+        """Squelette : pare les coups venant de face (le coup final brise la garde)."""
+        if not self.shielded or attack_kind in ('finisher', 'spin') or self.ai_state != 'chase':
+            return False
+        facing_attacker = (attacker_center[0] >= self.hitbox.centerx) == self.facing_right
+        return facing_attacker and random.random() < 0.4
 
     # ------------------------------------------------------------------
     # Movement
@@ -365,6 +377,41 @@ class Enemy(pygame.sprite.Sprite):
             self._update_status(False)
             self.move(0, dt)
             return None
+
+        self.charge_cd -= dt
+        if self.ai_state == 'chase' and self.charger and self.charge_cd <= 0 and 160 < dist < 420:
+            from fx import fx, Telegraph
+            self.ai_state = 'charge_windup'
+            self.ai_timer = 0.6
+            self.charge_dir = diff.normalize()
+            end = my + self.charge_dir * 430
+            fx.telegraphs.append(Telegraph('line', my.x, my.y, 0.6, end=(end.x, end.y), width=52))
+            event = ('telegraph',)
+
+        if self.ai_state == 'charge_windup':
+            self.direction = pygame.math.Vector2()
+            self.facing_right = self.charge_dir.x >= 0
+            self.ai_timer -= dt
+            self._update_status(False, True)
+            self.move(0, dt)
+            if self.ai_timer <= 0:
+                self.ai_state = 'charging'
+                self.ai_timer = 0.42
+                self.charge_hit = False
+            return event
+        if self.ai_state == 'charging':
+            self.direction = self.charge_dir
+            self.ai_timer -= dt
+            self._update_status(True)
+            self.move(self.speed * 4.2, dt)
+            if not self.charge_hit and self.hitbox.inflate(10, 10).colliderect(player.hitbox):
+                self.charge_hit = True
+                event = ('strike', int(self.damage * 1.3))
+            if self.ai_timer <= 0:
+                self.ai_state = 'recover'
+                self.ai_timer = 0.6
+                self.charge_cd = random.uniform(3.5, 5.5)
+            return event
 
         if self.ai_state == 'chase':
             if dist > 0:

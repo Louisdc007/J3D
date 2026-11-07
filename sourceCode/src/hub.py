@@ -7,20 +7,35 @@ from entities.npc import NPC
 from fx import ParticleSystem, render_outlined, draw_panel, additive_glow, get_font
 from audio import sfx
 
-# Mapping des textures de bâtiments
-BUILDING_TEXTURES = {
-    'bank': 'bank.jpg',
-    'forge': 'forge.jpg',
-    'library': 'bibli.jpg',
-    'shop': 'marche.jpg',
-    'path': ('floor_assets', 'dirt_path.jpg'),  # Tuple = dossier différent
+from building_art import building_image, ghost_image, thumbnail
+from contracts import ContractBoard
+
+UPGRADE_DEFS = {
+    # action : (clé, niveau max, or de base, or par niveau, fer de base, fer par niveau, libellé)
+    'upgrade_armor': ('armor', 5, 60, 45, 40, 30, "Armure"),
+    'upgrade_sharp': ('sharp', 4, 80, 55, 30, 25, "Affûtage"),
 }
 
-# Bâtiments avec mode de rendu spécial (fill-Y, crop-X centré)
-BUILDING_CROP_MODE = {'library'}
 
-# Bâtiments avec mode motif : la texture est scalée puis découpée pour être alignée sur la grille
-BUILDING_PATTERN_MODE = {'path': (320, 320)}  # 5x5 tiles de 64px
+def upgrade_cost(action, level):
+    _, _, g0, g1, i0, i1, _ = UPGRADE_DEFS[action]
+    return g0 + g1 * level, i0 + i1 * level
+
+VILLAGER_LINES = [
+    "On dit que le Seigneur dort sur une montagne d'or...",
+    "Les squelettes parent vos coups : brisez leur garde avec le 3e coup du combo !",
+    "Méfiez-vous des coffres qui tremblent, ce sont des mimiques.",
+    "L'aube vous surprendra : rentrez par le portail avant 6 h.",
+    "Les gobelins foncent tout droit. Esquivez sur le côté !",
+    "Les champignons pourrissent même après leur mort. Ne restez pas dans leur nuage.",
+    "La forge peut renforcer votre armure, pensez-y.",
+    "Un autel brille au fond des donjons. Touchez-le, il vous bénira.",
+    "Le tableau des primes paie bien, si on a le cran.",
+    "Mon grand-père a connu le village avant la trahison...",
+    "Merci de nous protéger, voyageur.",
+    "Le marché vend des potions. Ne partez jamais sans !",
+    "Quatre artefacts... et le Seigneur tombera.",
+]
 
 class Block(pygame.sprite.Sprite):
     def __init__(self, rect, group):
@@ -32,46 +47,7 @@ class Building(pygame.sprite.Sprite):
         super().__init__(group)
         self.type = type
         data = BUILDING_DATA[type]
-        # Charger la texture si disponible, sinon rectangle de couleur
-        target_w, target_h = data['size']
-        if type in BUILDING_TEXTURES:
-            tex_entry = BUILDING_TEXTURES[type]
-            if isinstance(tex_entry, tuple):
-                tex_path = resource_path(os.path.join('assets', tex_entry[0], tex_entry[1]))
-            else:
-                tex_path = resource_path(os.path.join('assets', 'building', tex_entry))
-            try:
-                tex = pygame.image.load(tex_path).convert()
-                if type in BUILDING_CROP_MODE:
-                    # Mode spécial : remplir la hauteur, cropper le surplus en largeur (centré)
-                    orig_w, orig_h = tex.get_size()
-                    scale_factor = target_h / orig_h
-                    scaled_w = int(orig_w * scale_factor)
-                    scaled_h = target_h
-                    tex_scaled = pygame.transform.scale(tex, (scaled_w, scaled_h))
-                    # Crop centré sur X
-                    crop_x = (scaled_w - target_w) // 2
-                    self.image = tex_scaled.subsurface(pygame.Rect(crop_x, 0, target_w, target_h)).copy()
-                elif type in BUILDING_PATTERN_MODE:
-                    # Mode motif : redimensionner à la taille du motif global et extraire le bout
-                    pat_w, pat_h = BUILDING_PATTERN_MODE[type]
-                    tex_scaled = pygame.transform.scale(tex, (pat_w, pat_h))
-                    px, py = pos
-                    src_x = int(px % pat_w)
-                    src_y = int(py % pat_h)
-                    self.image = pygame.Surface((target_w, target_h))
-                    self.image.blit(tex_scaled, (0, 0), (src_x, src_y, target_w, target_h))
-                else:
-                    # Mode normal : étirer pour remplir la zone
-                    self.image = pygame.transform.scale(tex, (target_w, target_h))
-            except Exception:
-                self.image = pygame.Surface(data['size'])
-                self.image.fill(data['color'])
-                pygame.draw.rect(self.image, (30, 30, 30), (0, 0, target_w, target_h), 3)
-        else:
-            self.image = pygame.Surface(data['size'])
-            self.image.fill(data['color'])
-            pygame.draw.rect(self.image, (30, 30, 30), (0, 0, target_w, target_h), 3)
+        self.image = building_image(type, pos)
         self.rect = self.image.get_rect(topleft=pos)
         self.name = data['name']
 
@@ -132,7 +108,14 @@ class Hub:
         self.gate_rect = pygame.Rect(0, 0, 220, 60)
         self.gate_rect.midbottom = (self.center_x, HEIGHT - 30)
         
-        self.fixed_obstacles = [self.campfire_rect, self.tent_rect, self.gate_rect]
+        self.board_rect = pygame.Rect(0, 0, 76, 66)
+        self.board_rect.bottomleft = (self.center_x + 64, self.center_y - 34)
+        self.board = ContractBoard()
+        self.board_open = False
+        self.board_panel = pygame.Rect(0, 0, 640, 420)
+        self.board_panel.center = (WIDTH // 2, HEIGHT // 2)
+        self.bark_t = 4.0
+        self.fixed_obstacles = [self.campfire_rect, self.tent_rect, self.gate_rect, self.board_rect]
         for rect in self.fixed_obstacles: Block(rect, [self.hub_obstacles])
 
         # --- POPULATION ---
@@ -221,8 +204,11 @@ class Hub:
             rect = pygame.Rect(start_x + i * (button_size + gap), y, button_size, button_size)
             self.build_buttons.append({'rect': rect, 'key': key, 'data': data})
 
-    def open_building_menu(self, b_type):
+    def open_building_menu(self, b_type, player=None):
         """Ouvre le menu spécifique à un type de batiment"""
+        if player is not None:
+            self._player = player
+        player = getattr(self, '_player', None)
         self.active_menu = b_type
         self.menu_buttons = []
         self.state_lock_time = pygame.time.get_ticks() + 300
@@ -239,6 +225,16 @@ class Hub:
                 'rect': pygame.Rect(0, 0, 400, 40),
                 'pos': (cx, start_y)
             })
+            for i, (action, d) in enumerate(UPGRADE_DEFS.items()):
+                lvl = player.upgrades.get(d[0], 0) if player else 0
+                if lvl >= d[1]:
+                    text = f"{d[6]} niveau {lvl}/{d[1]} (MAX)"
+                else:
+                    g, fe = upgrade_cost(action, lvl)
+                    bonus = "-8 % dégâts subis" if d[0] == 'armor' else "+5 % critique"
+                    text = f"{d[6]} {lvl}/{d[1]} : {bonus} ({g} Or + {fe} Fer)"
+                self.menu_buttons.append({'text': text, 'action': action,
+                                          'rect': pygame.Rect(0, 0, 400, 40), 'pos': (cx, start_y + gap * (i + 1))})
         elif b_type == 'shop':
             self.menu_buttons.append({
                 'text': f"Vendre 20 Fer (+{PRICES['sell_iron']} Or)",
@@ -340,7 +336,7 @@ class Hub:
                 return tuple(int(c0[j] + (c1[j] - c0[j]) * k) for j in range(3))
         return (255, 255, 255)
 
-    def draw(self, hour=12.0, dt=1 / 60):
+    def draw(self, hour=12.0, dt=1 / 60, player=None):
         if not hasattr(self, '_bg'):
             self._bg = self._build_static_background()
             self.particles = ParticleSystem()
@@ -361,7 +357,9 @@ class Hub:
         drawables = list(self.building_sprites) + list(self.npc_sprites)
         drawables.sort(key=lambda sp: sp.rect.bottom)
         for sprite in drawables:
-            if sprite in self.building_sprites:
+            if sprite in self.building_sprites and sprite.type in ('tree', 'flower'):
+                surf.blit(sprite.image, sprite.rect)  # décoration : ni cadre ni étiquette
+            elif sprite in self.building_sprites:
                 shadow = pygame.Surface((sprite.rect.width + 10, 18), pygame.SRCALPHA)
                 pygame.draw.ellipse(shadow, (0, 0, 0, 80), shadow.get_rect())
                 surf.blit(shadow, (sprite.rect.x - 5, sprite.rect.bottom - 10))
@@ -396,6 +394,8 @@ class Hub:
         self.particles.update(dt)
         self.particles.draw(surf, 0, 0, glow_pass=False)
         self.particles.draw(surf, 0, 0, glow_pass=True)
+        for npc in self.npc_sprites:
+            npc.draw_speech(surf)
 
         if self.night_arrived: self.draw_night_arrived_menu()
         elif self.waiting_for_night: self.draw_wait_night_menu()
@@ -403,11 +403,19 @@ class Hub:
 
         if self.active_menu:
             self.draw_active_menu()
+        if self.board_open:
+            self.board.draw_board(surf, self.board_panel, self.t)
+
+        # bavardages spontanés des villageois
+        self.bark_t -= dt
+        if self.bark_t <= 0 and self.npc_sprites:
+            self.bark_t = random.uniform(7, 13)
+            random.choice(list(self.npc_sprites)).say(random.choice(VILLAGER_LINES))
 
         if not self.night_arrived and not self.waiting_for_night and self.menu_state is None and not self.active_menu:
             if self.build_mode_active:
                 self.draw_build_mode_ui()
-                if self.selected_blueprint: self.draw_placement_preview()
+                if self.selected_blueprint: self.draw_placement_preview(player)
             else:
                 from menu_scene import draw_button
                 draw_button(surf, self.btn_open_build, "CONSTRUIRE", self.btn_open_build.collidepoint(mouse_pos),
@@ -457,6 +465,25 @@ class Hub:
         if hov:
             lab = render_outlined("Se reposer (soin + passer la journée)", 16, GOLD, width=2)
             surf.blit(lab, lab.get_rect(midbottom=(t.centerx, t.top - 10)))
+        # --- Tableau des primes ---
+        b = self.board_rect
+        hov = idle and b.collidepoint(mouse_pos)
+        pygame.draw.rect(surf, (75, 50, 28), (b.x + 8, b.y + 20, 6, b.height - 20))
+        pygame.draw.rect(surf, (75, 50, 28), (b.right - 14, b.y + 20, 6, b.height - 20))
+        board = pygame.Rect(b.x, b.y, b.width, 46)
+        pygame.draw.rect(surf, (120, 82, 46), board, border_radius=3)
+        pygame.draw.rect(surf, GOLD if hov else (60, 40, 22), board, 2, border_radius=3)
+        for i, (px, py) in enumerate(((8, 6), (40, 8), (20, 24), (50, 26))):
+            pygame.draw.rect(surf, (230, 220, 190), (b.x + px, b.y + py, 20, 14))
+            pygame.draw.circle(surf, (160, 30, 30), (b.x + px + 10, b.y + py + 2), 2)
+        if any(self.board.done(c) for c in self.board.contracts):
+            k = abs(math.sin(getattr(self, 't', 0) * 4))
+            bang = render_outlined("!", 30, (255, 220, 80), width=2, bold=True)
+            surf.blit(bang, bang.get_rect(midbottom=(b.centerx, b.top - 2 - int(6 * k))))
+        if hov:
+            lab = render_outlined("Tableau des primes", 16, GOLD, width=2)
+            surf.blit(lab, lab.get_rect(midbottom=(b.centerx, b.top - 26)))
+
         # --- Porte de l'expédition ---
         g = self.gate_rect
         hov = idle and g.collidepoint(mouse_pos)
@@ -489,7 +516,8 @@ class Hub:
     def draw_warning_banner(self):
         col = getattr(self, 'warning_color', (255, 110, 100))
         txt_surf = render_outlined(self.warning_msg, 22, col, width=2, bold=True)
-        txt_rect = txt_surf.get_rect(center=(WIDTH // 2, self.menu_rect.bottom + 34 if self.active_menu else HEIGHT // 2 + 180))
+        y = self.menu_rect.bottom + 34 if self.active_menu else (self.panel_top - 28 if self.build_mode_active else HEIGHT // 2 + 180)
+        txt_rect = txt_surf.get_rect(center=(WIDTH // 2, y))
         bg_rect = txt_rect.inflate(34, 16)
         pygame.draw.rect(self.display_surface, (20, 14, 18), bg_rect, border_radius=6)
         pygame.draw.rect(self.display_surface, col, bg_rect, 2, border_radius=6)
@@ -515,13 +543,32 @@ class Hub:
             self.draw_text(btn['text'], rect.center, size=18, color=(255, 245, 225) if hov else (215, 205, 190))
 
     def paused_ui_active(self):
-        return self.night_arrived or self.waiting_for_night or self.menu_state is not None or self.active_menu is not None
+        return (self.night_arrived or self.waiting_for_night or self.menu_state is not None
+                or self.active_menu is not None or self.board_open)
 
     def check_click(self, pos, player):
         now = pygame.time.get_ticks()
         if now < self.state_lock_time:
             return None
         
+        # 0. Tableau des primes
+        if self.board_open:
+            self.state_lock_time = now + 200
+            for i, (row, btn) in enumerate(self.board.board_layout(self.board_panel)):
+                if btn.collidepoint(pos) and i < len(self.board.contracts):
+                    reward = self.board.claim(i, player)
+                    if reward:
+                        self.show_info(f"Prime : +{reward['gold']} or, +{reward['iron']} fer, +{reward['xp']} XP")
+                        sfx('coin'); sfx('levelup', 0.5)
+                        return "save"
+                    self.show_warning("Contrat pas encore rempli.")
+                    return None
+            close = pygame.Rect(0, 0, 180, 40)
+            close.midbottom = (self.board_panel.centerx, self.board_panel.bottom - 14)
+            if close.collidepoint(pos) or not self.board_panel.collidepoint(pos):
+                self.board_open = False
+            return None
+
         # 1. Priorité absolue : Menu Bâtiment Actif
         if self.active_menu:
             for btn in self.menu_buttons:
@@ -532,6 +579,23 @@ class Hub:
                     if action == 'close_menu':
                         self.active_menu = None
                     
+                    elif action in UPGRADE_DEFS:
+                        key, max_lvl = UPGRADE_DEFS[action][0], UPGRADE_DEFS[action][1]
+                        lvl = player.upgrades.get(key, 0)
+                        if lvl >= max_lvl:
+                            self.show_warning("Niveau maximum atteint.")
+                        else:
+                            g, fe = upgrade_cost(action, lvl)
+                            if player.inventory['gold'] >= g and player.inventory['iron'] >= fe:
+                                player.inventory['gold'] -= g
+                                player.inventory['iron'] -= fe
+                                player.upgrades[key] = lvl + 1
+                                self.show_info(f"{UPGRADE_DEFS[action][6]} niveau {lvl + 1} !")
+                                sfx('iron', 0.8)
+                                self.open_building_menu('forge', player)
+                                return "save"
+                            self.show_warning("Pas assez de ressources !")
+
                     elif action == 'upgrade_dmg':
                         cost_g = PRICES['upgrade_damage']
                         cost_i = PRICES['upgrade_iron_cost']
@@ -539,7 +603,8 @@ class Hub:
                             player.inventory['gold'] -= cost_g
                             player.inventory['iron'] -= cost_i
                             player.attack_damage += 2 # Gain
-                            print("Arme améliorée !")
+                            self.show_info("Arme améliorée : +2 dégâts !")
+                            sfx('iron', 0.8)
                             return "save" # On demande une save
                         else:
                             self.show_warning("Pas assez de ressources !")
@@ -748,8 +813,22 @@ class Hub:
                     # On vérifie si ce batiment a un menu
                     # b_sprite.type contient la clé (ex: 'forge')
                     if b_sprite.type in ['forge', 'shop', 'bank', 'library']:
-                        self.open_building_menu(b_sprite.type)
+                        self.open_building_menu(b_sprite.type, player)
                         return None
+
+            # Villageois : un clic les fait parler
+            for npc in self.npc_sprites:
+                if npc.rect.inflate(16, 16).collidepoint(pos):
+                    npc.say(random.choice(VILLAGER_LINES))
+                    sfx('ui_hover')
+                    return None
+
+            if self.board_rect.collidepoint(pos):
+                self.state_lock_time = pygame.time.get_ticks() + 250
+                self.board.ensure(player.level)
+                self.board_open = True
+                sfx('ui_click')
+                return None
 
             # Autres intéractions
             if self.gate_rect.collidepoint(pos):
@@ -873,8 +952,11 @@ class Hub:
             if is_selected: color = (255, 255, 255); border = 3
             elif is_hovered: color = (200, 200, 200); border = 2
             else: color = (100, 100, 100); border = 1
-            pygame.draw.rect(self.display_surface, data['color'], rect, border_radius=5)
-            pygame.draw.rect(self.display_surface, color, rect, border, border_radius=5)
+            pygame.draw.rect(self.display_surface, (40, 34, 30) if not is_hovered else (62, 54, 44), rect, border_radius=6)
+            th = thumbnail(key, rect.width)
+            self.display_surface.blit(th, th.get_rect(center=rect.center))
+            if is_selected: color = GOLD
+            pygame.draw.rect(self.display_surface, color, rect, border, border_radius=6)
             name_surf = pygame.font.Font(UI_FONT, 12).render(data['name'], True, (220, 220, 220))
             name_rect = name_surf.get_rect(midtop=(rect.centerx, rect.bottom + 5))
             self.display_surface.blit(name_surf, name_rect)
@@ -884,26 +966,48 @@ class Hub:
         x, y = pos
         return ((x // grid_size) * grid_size, (y // grid_size) * grid_size)
 
-    def draw_placement_preview(self):
+    def placement_problem(self, b_type, rect, player=None):
+        """Raison pour laquelle on ne peut pas construire ici (None si tout va bien)."""
+        data = BUILDING_DATA[b_type]
+        if not self.is_placement_valid(rect):
+            return "Emplacement occupé"
+        max_cnt = data.get('max_count')
+        if max_cnt and self.get_building_count(b_type) >= max_cnt:
+            return "Limite atteinte"
+        self.recalculate_population()
+        if self.max_population - self.current_workers < data.get('cost_npc', 0):
+            return "Ouvriers insuffisants"
+        if player is not None and (player.inventory['gold'] < data['cost_gold'] or player.inventory['iron'] < data['cost_iron']):
+            return "Ressources insuffisantes"
+        return None
+
+    def draw_placement_preview(self, player=None):
         mouse_pos = pygame.mouse.get_pos()
+        if mouse_pos[1] >= self.panel_top:
+            return
         data = BUILDING_DATA[self.selected_blueprint]
         w, h = data['size']
         pos = self.get_snapped_pos(mouse_pos, w, h)
-        ghost = pygame.Surface((w, h))
-        ghost.fill(data['color'])
-        ghost.set_alpha(150)
-        valid = self.is_placement_valid(pygame.Rect(pos[0], pos[1], w, h))
-        npc_cost = data.get('cost_npc', 0)
-        free_workers = self.max_population - self.current_workers
-        enough_workers = (free_workers >= npc_cost)
-        max_cnt = data.get('max_count', None)
-        under_limit = True
-        if max_cnt:
-            if self.get_building_count(self.selected_blueprint) >= max_cnt: under_limit = False
-        if valid and enough_workers and under_limit: color = (50, 255, 50) 
-        else: color = (255, 50, 50) 
-        pygame.draw.rect(ghost, color, (0,0,w,h), 4)
-        self.display_surface.blit(ghost, pos)
+        rect = pygame.Rect(pos[0], pos[1], w, h)
+        problem = self.placement_problem(self.selected_blueprint, rect, player)
+        valid = problem is None
+        surf = self.display_surface
+        # ombre au sol puis bâtiment fantôme (vraie texture)
+        shadow = pygame.Surface((w + 10, 16), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, 70), shadow.get_rect())
+        surf.blit(shadow, (rect.x - 5, rect.bottom - 9))
+        surf.blit(ghost_image(self.selected_blueprint, pos, valid), pos)
+        col = (90, 255, 120) if valid else (255, 80, 70)
+        pulse = 2 + int(abs(math.sin(getattr(self, 't', 0) * 6)) * 2)
+        pygame.draw.rect(surf, col, rect, pulse, border_radius=3)
+        # grille d'aide autour du curseur
+        for gx in range(rect.left - 64, rect.right + 64, 32):
+            pygame.draw.line(surf, (*col,), (gx, rect.top - 4), (gx, rect.top - 1))
+        label = data['name'] if valid else problem
+        info = render_outlined(label, 17, col, width=2, bold=True)
+        cost = render_outlined(f"{data['cost_gold']} or · {data['cost_iron']} fer", 15, (235, 225, 205), width=2)
+        surf.blit(info, info.get_rect(midbottom=(rect.centerx, rect.top - 18)))
+        surf.blit(cost, cost.get_rect(midbottom=(rect.centerx, rect.top - 3)))
 
     def is_placement_valid(self, new_rect):
         for obst in self.fixed_obstacles:
@@ -959,7 +1063,8 @@ class Hub:
         return {
             'buildings': self.built_buildings,
             'banked_iron': self.banked_iron,
-            'banked_gold': self.banked_gold
+            'banked_gold': self.banked_gold,
+            'contracts': self.board.to_save(),
         }
         
     def load_save_data(self, data):
@@ -975,6 +1080,7 @@ class Hub:
             b_list = data.get('buildings', [])
             self.banked_iron = data.get('banked_iron', 0)
             self.banked_gold = data.get('banked_gold', 0)
+            self.board.load(data.get('contracts'))
         else:
             print("Format invalide."); return
             

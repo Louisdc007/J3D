@@ -17,7 +17,7 @@ from dungeon import DungeonGenerator, split_cells, torch_spots
 from entities.enemy import Enemy
 from entities.boss import Boss
 from entities.item import Item, get_icon
-from entities.props import Torch, Chest
+from entities.props import Torch, Chest, Breakable, SpikeTrap, Shrine, SHRINE_BUFFS
 from minimap import Minimap
 from perks import PerkScreen, apply_perk, roll_choices, PERKS, RARITY_COLORS
 from menu_scene import MenuBackground, draw_button
@@ -211,6 +211,18 @@ class GameFeatures:
             self.run_stats['best_combo'] = self.player.combo_step + 1
 
     def player_hit_enemy(self, enemy):
+        if enemy.vulnerable and enemy.try_block(self.player.hitbox.center, self.player.attack_kind):
+            enemy.vulnerable = False
+            enemy.hit_time = pygame.time.get_ticks()
+            bx, by = enemy.body_center()
+            fx.text(bx, by - 40, "BLOQUÉ", (180, 200, 255), 22, 0.7, 60, 1.3)
+            fx.particles.sparks(bx, by, (200, 220, 255), 14)
+            fx.shake(0.1)
+            sfx('iron', 0.9)
+            self.player.knockback = (pygame.math.Vector2(self.player.hitbox.center) - pygame.math.Vector2(enemy.hitbox.center))
+            if self.player.knockback.length():
+                self.player.knockback.scale_to_length(500)
+            return False
         dmg, crit = self.player.roll_damage()
         if enemy.get_damage(self.player.hitbox.center, dmg):
             self.fx_enemy_hit(enemy, dmg, crit, self.player.attack_kind)
@@ -227,7 +239,7 @@ class GameFeatures:
         fx.shake(0.12)
 
     def spawn_loot_solo(self, enemy):
-        greed = 1 + 0.25 * self.player.perk('greed')
+        greed = (1 + 0.25 * self.player.perk('greed')) * (2 if self.player.has_buff('fortune') else 1)
         cx, cy = enemy.hitbox.center
         for item_type, (min_amt, max_amt) in enemy.loot_table.items():
             amount = random.randint(min_amt, max_amt)
@@ -240,8 +252,39 @@ class GameFeatures:
         if random.random() < (0.025 if not enemy.elite else 0.3):
             Item((cx, cy), [self.visible_sprites, self.item_sprites], 'potion', burst=True)
 
+    def contract_event(self, event, **kw):
+        for c in self.hub.board.notify(event, **kw):
+            self.ui.toast(f"Contrat rempli : {c['desc']}", (140, 255, 150))
+            sfx('levelup', 0.5)
+
+    def register_kill_streak(self):
+        now = pygame.time.get_ticks()
+        self.streak = self.streak + 1 if now - self.last_kill_ms < 2500 else 1
+        self.last_kill_ms = now
+        self.run_stats['best_streak'] = max(self.run_stats.get('best_streak', 0), self.streak)
+        if self.streak >= 3:
+            names = {3: "TRIPLÉ", 5: "MASSACRE", 8: "CARNAGE", 12: "LÉGENDAIRE"}
+            label = names.get(self.streak)
+            if label:
+                p = self.player
+                fx.text(p.hitbox.centerx, p.hitbox.top - 90, f"{label} x{self.streak}", (255, 170, 60), 30, 1.2, 50, 1.8)
+                sfx('levelup', 0.35)
+                # bonus d'XP pour les séries
+                for _ in range(self.streak):
+                    Item(p.hitbox.center, [self.visible_sprites, self.item_sprites], 'xp', burst=True)
+            self.contract_event('streak', count=self.streak)
+
+    def spawn_poison_cloud(self, x, y, radius=95, life=4.0):
+        self.hazards.append({'x': x, 'y': y, 'r': radius, 'life': life, 'max': life, 't': 0.0})
+
     def on_enemy_killed_solo(self, enemy):
         self.enemy_death_fx(enemy)
+        if not isinstance(enemy, Boss):
+            self.contract_event('kill', tier=enemy.tier, elite=enemy.elite)
+            self.register_kill_streak()
+            if enemy.tier == 'tier2':
+                bx, by = enemy.body_center()
+                self.spawn_poison_cloud(bx, by + 10)
         self.player.stats['kills'] = self.player.stats.get('kills', 0) + 1
         self.run_stats['kills'] += 1
         if self.player.perk('vamp'):
@@ -341,6 +384,7 @@ class GameFeatures:
         sfx('victory')
         self.audio.stop_loop('boss_loop')
         self.player.stats['bosses'] = self.player.stats.get('bosses', 0) + 1
+        self.contract_event('boss')
         for item_type, (lo, hi) in boss.loot_table.items():
             for _ in range(random.randint(lo, hi)):
                 Item((cx, cy), [self.visible_sprites, self.item_sprites], item_type, burst=True)
@@ -385,6 +429,14 @@ class GameFeatures:
         self.player.events.clear()
         self.boss = None
         self.chests = []
+        self.breakables = pygame.sprite.Group()
+        self.traps = []
+        self.shrines = []
+        self.hazards = []
+        self.streak = 0
+        self.last_kill_ms = -10000
+        self._poison_t = 0.0
+        self._regen_t = 0.0
         self.dawn_warned = False
         self.cleared_announced = False
         self.visible_sprites.snap_next = True
@@ -426,7 +478,33 @@ class GameFeatures:
                     return rx * TILE_SIZE + random.randint(0, 20), ry * TILE_SIZE + random.randint(0, 20)
             return room.centerx * TILE_SIZE, room.centery * TILE_SIZE
 
+        used = set()
+
+        def edge_cell(room):
+            """Case de sol collée à un mur (pour ne pas boucher les couloirs)."""
+            cands = [(x, y) for x in range(room.left, room.right) for y in range(room.top, room.bottom)
+                     if (x, y) in fset and (x, y) not in used
+                     and sum((x + dx, y + dy) not in fset for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))) >= 1
+                     and sum((x + dx, y + dy) not in fset for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))) <= 2]
+            if not cands:
+                return None
+            c = random.choice(cands)
+            used.add(c)
+            return c
+
+        def inner_cell(room):
+            cands = [(x, y) for x in range(room.left + 1, room.right - 1) for y in range(room.top + 1, room.bottom - 1)
+                     if (x, y) in fset and (x, y) not in used
+                     and all((x + dx, y + dy) in fset for dx in (-1, 0, 1) for dy in (-1, 0, 1))]
+            if not cands:
+                return None
+            c = random.choice(cands)
+            used.add(c)
+            return c
+
         rooms = [r for r in dungeon.rooms[1:] if r is not dungeon.boss_room]
+        spawn_room = dungeon.rooms[0]
+        rooms = [r for r in rooms if not r.colliderect(spawn_room.inflate(4, 4))] or rooms
         for room in rooms:
             if major:
                 spawn_count = random.randint(2, 4)
@@ -446,6 +524,24 @@ class GameFeatures:
                 pos = free_spot(room)
                 mimic = random.random() < 0.12
                 self.chests.append(Chest(pos, [self.visible_sprites], mimic=mimic))
+            # tonneaux et jarres le long des murs
+            for _ in range(random.randint(2, 5)):
+                cell = edge_cell(room)
+                if cell:
+                    Breakable((cell[0] * TILE_SIZE + 32, cell[1] * TILE_SIZE + 36),
+                              [self.visible_sprites, self.obstacle_sprites, self.breakables])
+            # pièges à pointes
+            if random.random() < 0.55:
+                for _ in range(random.randint(1, 3)):
+                    cell = inner_cell(room)
+                    if cell:
+                        self.traps.append(SpikeTrap((cell[0] * TILE_SIZE, cell[1] * TILE_SIZE), [self.visible_sprites]))
+        # un autel de bénédiction (presque toujours)
+        if rooms and random.random() < (0.9 if major else 0.7):
+            room = random.choice(rooms)
+            cell = inner_cell(room)
+            if cell:
+                self.shrines.append(Shrine((cell[0] * TILE_SIZE + 32, cell[1] * TILE_SIZE + 32), [self.visible_sprites]))
 
         if major and dungeon.boss_room:
             br = dungeon.boss_room
@@ -530,6 +626,27 @@ class GameFeatures:
             self.transition_text = f"Artefact récupéré ({self.player.artifacts}/4)"
             self.transition_sub = "Le pouvoir du Seigneur faiblit..."
 
+    def break_prop(self, b):
+        x, y = b.hitbox.center
+        col = (120, 75, 40) if b.kind == 'barrel' else (160, 100, 65)
+        fx.particles.emit(x, y - 10, 18, col, speed=(80, 260), life=(0.4, 0.8), size=(3, 6), gravity=500, drag=2)
+        fx.particles.dust(x, y, 6)
+        sfx('hit', 0.6)
+        fx.shake(0.06)
+        r = random.random()
+        if r < 0.35:
+            for _ in range(random.randint(1, 3)):
+                Item((x, y), [self.visible_sprites, self.item_sprites], 'gold', burst=True)
+        elif r < 0.65:
+            for _ in range(random.randint(2, 4)):
+                Item((x, y), [self.visible_sprites, self.item_sprites], 'iron', burst=True)
+        elif r < 0.75:
+            Item((x, y), [self.visible_sprites, self.item_sprites], 'health', burst=True)
+        elif r < 0.78:
+            Item((x, y), [self.visible_sprites, self.item_sprites], 'potion', burst=True)
+        self.contract_event('barrel')
+        b.kill()
+
     def can_extract(self):
         return (getattr(self, 'current_dungeon_type', 'random') != 'major' and not self.transition_active
                 and self.player.health > 0 and self.is_player_at_entrance())
@@ -545,7 +662,32 @@ class GameFeatures:
         sfx('portal')
         fx.particles.ring(self.player.hitbox.centerx, self.player.hitbox.centery, (120, 160, 255), 40, 300)
 
+    def nearest_shrine(self):
+        for sh in self.shrines:
+            if not sh.used and pygame.math.Vector2(sh.hitbox.center).distance_to(self.player.hitbox.center) < 85:
+                return sh
+        return None
+
+    def use_shrine(self, sh):
+        sh.use()
+        p = self.player
+        name, desc, col = SHRINE_BUFFS[sh.buff]
+        p.add_buff(sh.buff, 35)
+        if sh.buff == 'haste':
+            p.can_dash = True
+        if sh.buff == 'vitality':
+            p.health = min(p.max_health, p.health + int(p.max_health * 0.2))
+        fx.show_banner(name.upper(), f"{desc} pendant 35 s", col, 2.4)
+        fx.particles.ring(sh.hitbox.centerx, sh.hitbox.centery, col, 40, 320)
+        fx.particles.soul(p.hitbox.centerx, p.hitbox.centery, col)
+        fx.flash(col, 60)
+        sfx('portal'); sfx('levelup', 0.5)
+
     def try_interact(self):
+        sh = self.nearest_shrine()
+        if sh is not None and self.nearest_chest() is None:
+            self.use_shrine(sh)
+            return
         chest = self.nearest_chest()
         if chest is None:
             if self.can_extract():
@@ -572,6 +714,7 @@ class GameFeatures:
             return
         sfx('chest')
         self.run_stats['chests'] += 1
+        self.contract_event('chest')
         p.stats['chests'] = p.stats.get('chests', 0) + 1
         fx.particles.emit(cx, cy - 10, 30, (255, 210, 90), speed=(80, 260), life=(0.4, 0.9), size=(2, 4),
                           gravity=300, glow=True, angle=-math.pi / 2, spread=1.6)
@@ -628,6 +771,66 @@ class GameFeatures:
                 if e.health > 0 and wrect.colliderect(e.hitbox):
                     self.player_hit_enemy(e)
 
+            for b in list(self.breakables):
+                if wrect.colliderect(b.hitbox.inflate(10, 20)):
+                    self.break_prop(b)
+
+        # --- pièges à pointes (blessent aussi les monstres) ---
+        lvl = p.level
+        for trap in self.traps:
+            if getattr(trap, 'just_sprung', False):
+                trap.just_sprung = False
+                if pygame.math.Vector2(trap.rect.center).distance_to(p.hitbox.center) < 520:
+                    sfx('iron', 0.35, cooldown=0.1)
+            if trap.phase != 'up':
+                continue
+            if 'player' not in trap.hit_ids and trap.hurts(p.hitbox):
+                trap.hit_ids.add('player')
+                self.damage_player(8 + lvl * 1.5, trap.rect.center)
+            for e in self.attackable_sprites:
+                if id(e) not in trap.hit_ids and not isinstance(e, Boss) and not e.is_flying and trap.hurts(e.hitbox):
+                    trap.hit_ids.add(id(e))
+                    e.vulnerable = True
+                    if e.get_damage(trap.rect.center, 12 + lvl * 2):
+                        bx, by = e.body_center()
+                        fx.text(bx, by - 30, str(12 + lvl * 2), (200, 200, 210), 20, 0.6)
+                        fx.particles.blood(bx, by, None, 8)
+
+        # --- nuages toxiques ---
+        for hz in self.hazards:
+            hz['life'] -= dt
+            hz['t'] += dt
+            if hz['t'] > 0.06:
+                hz['t'] = 0
+                a = random.uniform(0, math.tau)
+                r = random.uniform(0, hz['r'])
+                fx.particles.emit(hz['x'] + math.cos(a) * r, hz['y'] + math.sin(a) * r * 0.6, 1,
+                                  random.choice([(110, 200, 60), (80, 160, 50), (150, 220, 90)]),
+                                  speed=(5, 25), life=(0.6, 1.2), size=(5, 10), gravity=-20, square=False, drag=1)
+            dx, dy = p.hitbox.centerx - hz['x'], (p.hitbox.centery - hz['y']) / 0.6
+            if dx * dx + dy * dy < hz['r'] ** 2:
+                p.apply_poison(2.5)
+        self.hazards = [h for h in self.hazards if h['life'] > 0]
+
+        # --- poison : dégâts sur la durée (ignore l'invulnérabilité) ---
+        if p.poisoned and p.health > 0:
+            self._poison_t += dt
+            if self._poison_t >= 0.5:
+                self._poison_t = 0
+                dmg = max(1, int(round((2 + lvl * 0.4) * (1 - p.armor_ratio))))
+                p.health -= dmg
+                fx.text(p.hitbox.centerx + random.randint(-14, 14), p.hitbox.top - 50, f"-{dmg}", (140, 230, 80), 18, 0.6, 50)
+                fx.particles.emit(p.hitbox.centerx, p.hitbox.centery - 30, 4, (120, 220, 70), speed=(10, 40),
+                                  life=(0.3, 0.6), size=(2, 4), gravity=-60)
+        # --- autel de vitalité : régénération ---
+        if p.has_buff('vitality') and 0 < p.health < p.max_health:
+            self._regen_t += dt
+            if self._regen_t >= 1.0:
+                self._regen_t = 0
+                heal = max(1, int(p.max_health * 0.03))
+                p.health = min(p.max_health, p.health + heal)
+                fx.text(p.hitbox.centerx, p.hitbox.top - 50, f"+{heal}", (110, 255, 130), 16, 0.5, 40)
+
         # --- IA des monstres ---
         pc = pygame.math.Vector2(p.hitbox.center)
         active = []
@@ -647,8 +850,10 @@ class GameFeatures:
                     elif ev[0] == 'shoot':
                         d = ev[1]
                         bx, by = enemy.body_center()
-                        fx.projectiles.append(Projectile(bx, by, d.x * 330, d.y * 330, enemy.damage,
-                                                         color=(150, 255, 80), radius=8))
+                        acid = Projectile(bx, by, d.x * 330, d.y * 330, enemy.damage,
+                                          color=(150, 255, 80), radius=8)
+                        acid.poison = True
+                        fx.projectiles.append(acid)
                         sfx('shoot', 0.5)
             if enemy.health <= 0:
                 self.on_enemy_killed_solo(enemy)
@@ -661,6 +866,8 @@ class GameFeatures:
                 proj.alive = False
                 if self.damage_player(proj.damage, (proj.pos.x, proj.pos.y)):
                     fx.particles.sparks(proj.pos.x, proj.pos.y, proj.color, 10)
+                    if getattr(proj, 'poison', False):
+                        p.apply_poison(2.5)
         fx.projectiles = [pr for pr in fx.projectiles if pr.alive]
 
         self.update_items(dt)
@@ -754,6 +961,9 @@ class GameFeatures:
                         mode='dungeon', dt=self.dt, boss=boss)
         if self.minimap and not self.show_big_map:
             self.minimap.draw(self.screen, self.player.hitbox.center, self.minimap_markers())
+        self.draw_status_effects()
+        if not self.is_multiplayer and self.hub.board.contracts:
+            self.hub.board.draw_tracker(self.screen, 20, 128)
         if getattr(self, 'current_dungeon_type', 'random') == 'major' and not self.is_multiplayer:
             rem = len([e for e in self.attackable_sprites if not isinstance(e, Boss)])
             label = "Gardien en éveil" if boss else ("Trouvez le Gardien" if self.boss_ref and self.boss_ref.alive()
@@ -767,6 +977,26 @@ class GameFeatures:
                                   f"Monstres : {len(self.attackable_sprites)}", 20, col, width=2)
             self.screen.blit(txt, txt.get_rect(center=(WIDTH // 2, 24)))
 
+    def draw_status_effects(self):
+        p = self.player
+        x, y = 210, 70
+        effects = []
+        for buff, (name, desc, col) in SHRINE_BUFFS.items():
+            rem = p.buff_remaining(buff)
+            if rem > 0:
+                effects.append((name.replace("Autel de ", ""), col, rem, 35))
+        if p.poisoned:
+            effects.append(("Poison", (130, 230, 80), (p.poisoned_until - pygame.time.get_ticks()) / 1000, 3))
+        for name, col, rem, total in effects:
+            r = pygame.Rect(x, y, 34, 34)
+            pygame.draw.rect(self.screen, (14, 12, 18), r, border_radius=8)
+            pygame.draw.circle(self.screen, col, r.center, 10)
+            k = max(0.0, min(1.0, rem / total))
+            pygame.draw.arc(self.screen, col, r.inflate(-2, -2), math.pi / 2, math.pi / 2 + math.tau * k, 3)
+            lab = render_outlined(f"{name} {int(rem) + 1}s" if rem < 100 else name, 13, col, width=1, bold=True)
+            self.screen.blit(lab, lab.get_rect(midtop=(r.centerx, r.bottom + 1)))
+            x += 74
+
     def minimap_markers(self):
         m = []
         if self.dungeon_entrance_rect:
@@ -774,6 +1004,9 @@ class GameFeatures:
         for c in self.chests:
             if not c.opened:
                 m.append((c.rect.center, (255, 210, 80), 3, False))
+        for sh in getattr(self, 'shrines', []):
+            if not sh.used:
+                m.append((sh.hitbox.center, sh.color, 4, False))
         for e in self.attackable_sprites:
             if isinstance(e, Boss):
                 m.append((e.hitbox.center, (255, 40, 40), 6, False))
@@ -821,8 +1054,11 @@ class GameFeatures:
         if self.is_multiplayer:
             return
         chest = self.nearest_chest()
+        shrine = self.nearest_shrine()
         if chest is not None:
             anchor, label = (chest.rect.centerx, chest.rect.top - 18), "[E] Ouvrir"
+        elif shrine is not None:
+            anchor, label = (shrine.rect.centerx, shrine.rect.top - 12), f"[E] {SHRINE_BUFFS[shrine.buff][0]}"
         elif self.can_extract():
             r = self.dungeon_entrance_rect
             anchor, label = (r.centerx, r.top - 60), "[E] Rentrer au village"
@@ -982,7 +1218,7 @@ class GameFeatures:
                  ("Clic droit / Maj : Tourbillon", None),
                  ("Espace : esquive (invulnérable)", None),
                  ("R / F : boire une potion", None),
-                 ("E : ouvrir un coffre", None),
+                 ("E : coffre, autel, portail (rentrer)", None),
                  ("Tab / M : carte du donjon", None),
                  ("Échap : pause", None),
                  ("", None),

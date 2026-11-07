@@ -99,8 +99,79 @@ def hub_buildings_are_obstacles(g):
 
 
 @test
+def new_mechanics(g):
+    """Contrats, autels, parade des squelettes, pièges, poison, forge."""
+    random.seed(5)
+    enter_dungeon(g)
+    p = g.player
+    p.max_health = p.health = 1000
+    board = g.hub.board
+    board.contracts = []
+    board.ensure(p.level)
+    board.contracts[0] = {'kind': 'kill_any', 'goal': 1, 'progress': 0, 'target': None,
+                          'desc': 'test', 'reward': {'gold': 5, 'iron': 5, 'xp': 5}}
+    e = next(iter(g.attackable_sprites))
+    e.health = 0
+    g.on_enemy_killed_solo(e)
+    assert board.done(board.contracts[0]), "le contrat n'a pas progressé"
+    gold = p.inventory['gold']
+    assert board.claim(0, p) and p.inventory['gold'] == gold + 5
+
+    # autel
+    from entities.props import Shrine, SpikeTrap
+    sh = Shrine(p.hitbox.center, [g.visible_sprites])
+    sh.buff = 'rage'
+    g.shrines.append(sh)
+    base = p.damage_mult
+    g.try_interact()
+    assert sh.used and p.has_buff('rage') and p.damage_mult > base
+
+    # parade : un squelette de face pare souvent, le coup final passe toujours
+    sk = Enemy([g.visible_sprites, g.attackable_sprites], (0, 0), g.obstacle_sprites, 'tier4')
+    sk.hitbox.center = (p.hitbox.centerx + 60, p.hitbox.centery)
+    sk.facing_right = False
+    blocks = sum(sk.try_block(p.hitbox.center, 'atk') for _ in range(400))
+    assert 80 < blocks < 250, blocks
+    assert not any(sk.try_block(p.hitbox.center, 'finisher') for _ in range(50))
+
+    # piège : blesse quand les pointes sont sorties
+    trap = SpikeTrap(p.hitbox.topleft, [g.visible_sprites])
+    trap.phase_i = 2
+    assert trap.hurts(p.hitbox)
+
+    # poison : fait perdre des PV au fil du temps
+    p.vulnerable = True
+    hp = p.health
+    p.apply_poison(3)
+    for _ in range(40):
+        g.update_dungeon_solo(1 / 30)
+    assert p.health < hp, "le poison n'inflige pas de dégâts"
+
+    # armure : réduit les dégâts subis
+    p.upgrades['armor'] = 5
+    p.vulnerable = True; p.is_dashing = False
+    hp = p.health
+    dealt = p.get_damage(100, (0, 0))
+    assert dealt == 60 and p.health == hp - 60, dealt
+
+
+@test
+def save_roundtrip(g):
+    """Les nouveautés (contrats, forge, potions, perks) survivent à une sauvegarde."""
+    p = g.player
+    p.upgrades['armor'] = 2; p.potions = 4; p.perks = {'crit': 1}
+    g.hub.board.ensure(3)
+    descs = [c['desc'] for c in g.hub.board.contracts]
+    g.save_all()
+    g2 = Game()
+    assert g2.player.upgrades['armor'] == 2 and g2.player.potions == 4 and g2.player.perks == {'crit': 1}
+    assert [c['desc'] for c in g2.hub.board.contracts] == descs
+
+
+@test
 def full_loop_runs(g):
-    """La vraie boucle game.run() démarre et s'arrête proprement."""
+    """La vraie boucle game.run() démarre et s'arrête proprement (doit rester le dernier test :
+    la sortie du jeu appelle pygame.quit())."""
     g.return_to_menu()
     calls = {'n': 0}
     orig = g.events

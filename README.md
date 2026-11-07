@@ -50,10 +50,25 @@ Vous incarnez un survivant qui doit explorer ce nouveau monde. Pour survivre, vo
 * Les **Mouches** gardent leurs distances et crachent de l'acide.
 * **Élites** dorés (plus résistants, plus de butin) et **coffres** (touche E)… dont certains sont des **mimiques** !
 
+### Contenu des donjons
+* **Tonneaux et jarres** destructibles (or, fer, soins), **pièges à pointes** qui blessent aussi les monstres.
+* **Autels** de bénédiction temporaire : Rage (+50 % dégâts), Célérité, Vitalité (régénération), Fortune (butin x2).
+* Les **squelettes** parent les coups de face (le 3ᵉ coup du combo brise leur garde), les **gobelins** chargent,
+  les **champignons** libèrent un nuage toxique en mourant, l'acide des mouches **empoisonne**.
+* **Séries de victimes** (Triplé, Massacre, Carnage...) qui rapportent de l'XP bonus.
+
 ### Boss
 * Chaque **donjon majeur** se termine dans une arène face à un **Gardien de l'Artefact** : charges, ondes de choc, salves de projectiles, invocations, phase **enragée** à 50 % de vie.
 * Le 4ᵉ artefact est gardé par **le Seigneur de la Cupidité** et sa **pluie d'or**, avec une troisième phase.
 * Écran de **victoire** avec statistiques et crédits.
+
+### Village
+* **Tableau des primes** : 3 contrats à la fois (éliminer des monstres, ouvrir des coffres, abattre des élites,
+  rapporter du fer, vaincre un Gardien...) avec des primes à réclamer.
+* **Forge** : en plus des dégâts, améliorez votre **armure** (-8 % de dégâts subis par niveau) et l'**affûtage** (+5 % de critique).
+* Nouvelles illustrations pour l'auberge, les arbres et les fleurs, et un **fantôme de placement** qui montre le vrai bâtiment
+  (vert si on peut construire, rouge avec la raison sinon).
+* Les **villageois parlent** : cliquez sur eux pour des conseils et des bribes d'histoire.
 
 ### Progression
 * **Bénédictions** : à chaque niveau, choisissez 1 bonus parmi 3 (12 bénédictions de 4 raretés : vol de vie, épines, seconde chance…).
@@ -80,7 +95,7 @@ Vous incarnez un survivant qui doit explorer ce nouveau monde. Pour survivre, vo
 | Tourbillon | Clic droit / Maj |
 | Esquive | Espace |
 | Potion | R / F |
-| Ouvrir un coffre / rentrer par le portail | E |
+| Coffre, autel, rentrer par le portail | E |
 | Carte du donjon | Tab / M |
 | Pause | Échap |
 
@@ -116,6 +131,15 @@ Vous incarnez un survivant qui doit explorer ce nouveau monde. Pour survivre, vo
    cd sourceCode/src
    python main.py
    ```
+
+## 🧪 Tests
+
+```
+python sourceCode/tests/test_game.py
+```
+
+Les tests tournent sans fenêtre : collisions avec les murs, mécaniques (contrats, autels, parade, pièges,
+poison, armure), sauvegarde, et démarrage de la vraie boucle de jeu.
 
 ## 👨‍💻 L'Équipe
 

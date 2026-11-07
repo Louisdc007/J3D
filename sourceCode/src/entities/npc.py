@@ -12,6 +12,8 @@ class NPC(pygame.sprite.Sprite):
         self.skin = random.choice([(240, 200, 170), (210, 160, 120), (160, 110, 80), (110, 75, 55)])
         self.hair = random.choice([(50, 35, 20), (120, 80, 30), (20, 20, 20), (200, 180, 120), (150, 150, 150)])
         self.walk_t = random.uniform(0, 6)
+        self.speech = None
+        self.speech_until = 0
         
         self.rect = self.image.get_rect(topleft=pos)
         self.pos = pygame.math.Vector2(self.rect.topleft)
@@ -84,11 +86,42 @@ class NPC(pygame.sprite.Sprite):
             self.collision('vertical')
 
     def update(self):
+        if self.speech and pygame.time.get_ticks() < self.speech_until:
+            return  # il s'arrête pour parler
         self.patrol()
         self.check_boundaries()
         self.move()
         if self.direction.magnitude() != 0:
             self.walk_t += 0.25
+
+    def say(self, text, ms=3500):
+        self.speech = text
+        self.speech_until = pygame.time.get_ticks() + ms
+
+    def draw_speech(self, surface):
+        if not self.speech or pygame.time.get_ticks() > self.speech_until:
+            return
+        from fx import get_font
+        font = get_font(15)
+        words, lines, line = self.speech.split(), [], ""
+        for w in words:
+            test = (line + " " + w).strip()
+            if font.size(test)[0] > 220:
+                lines.append(line); line = w
+            else:
+                line = test
+        lines.append(line)
+        w = max(font.size(l)[0] for l in lines) + 16
+        h = len(lines) * 17 + 10
+        box = pygame.Rect(0, 0, w, h)
+        box.midbottom = (self.rect.centerx, self.rect.top - 22)
+        box.clamp_ip(surface.get_rect().inflate(-8, -8))
+        pygame.draw.rect(surface, (250, 244, 228), box, border_radius=8)
+        pygame.draw.rect(surface, (60, 45, 30), box, 2, border_radius=8)
+        tip = [(self.rect.centerx - 5, box.bottom - 1), (self.rect.centerx + 5, box.bottom - 1), (self.rect.centerx, box.bottom + 7)]
+        pygame.draw.polygon(surface, (250, 244, 228), tip)
+        for i, l in enumerate(lines):
+            surface.blit(font.render(l, True, (40, 30, 22)), (box.x + 8, box.y + 5 + i * 17))
 
     def draw(self, surface):
         import math

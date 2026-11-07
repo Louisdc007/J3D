@@ -512,6 +512,7 @@ class FXManager:
         self.flash_alpha = 0.0
         self.slowmo_timer = 0.0
         self.time_scale = 1.0
+        self.banner = None
 
     # --- déclencheurs ---------------------------------------------------
     def shake(self, amount):

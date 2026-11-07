@@ -166,7 +166,7 @@ class CameraGroup(pygame.sprite.Group):
             r = getattr(sprite, 'draw_rect', None) or sprite.rect
             if not view.colliderect(r):
                 continue
-            if isinstance(sprite, Item) or getattr(sprite, 'is_portal', False):
+            if isinstance(sprite, Item) or getattr(sprite, 'is_portal', False) or getattr(sprite, 'is_ground', False):
                 flat.append(sprite)
             else:
                 entities.append(sprite)
@@ -174,7 +174,10 @@ class CameraGroup(pygame.sprite.Group):
                 lights_world.append((sprite.rect.centerx, sprite.rect.centery, 260, (120, 140, 255)))
             elif hasattr(sprite, 'light_pos'):
                 fl = sprite.flicker(fx.time) if hasattr(sprite, 'flicker') else 1
-                lights_world.append((sprite.light_pos[0], sprite.light_pos[1], 230 * fl, (255, 170, 90)))
+                rad = getattr(sprite, 'light_radius', 230) * fl
+                if rad > 8:
+                    lights_world.append((sprite.light_pos[0], sprite.light_pos[1], rad,
+                                         getattr(sprite, 'light_color', (255, 170, 90))))
             elif isinstance(sprite, Item):
                 lights_world.append((sprite.rect.centerx, sprite.rect.centery, 46, sprite.glow_color))
             elif isinstance(sprite, Player) and sprite is not player and sprite.health > 0:
@@ -208,7 +211,11 @@ class CameraGroup(pygame.sprite.Group):
             if isinstance(sprite, Enemy) and sprite.elite:
                 gx, gy = sprite.body_center()
                 additive_glow(surf, int(gx - ox), int(gy - oy), 60, (90, 70, 10))
-            blit(sprite.image, (sprite.rect.x - ox, sprite.rect.y - oy))
+            r = getattr(sprite, 'draw_rect', None) or sprite.rect
+            blit(sprite.image, (r.x - ox, r.y - oy))
+            pois = getattr(sprite, 'poisoned_until', 0)
+            if pois and pygame.time.get_ticks() < pois and isinstance(sprite, Player):
+                additive_glow(surf, sprite.hitbox.centerx - ox, sprite.hitbox.centery - 24 - oy, 44, (20, 70, 10))
 
         fx.draw_world(surf, ox, oy)
 
