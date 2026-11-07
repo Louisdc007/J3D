@@ -426,21 +426,21 @@ class Enemy(pygame.sprite.Sprite):
         if self.direction.magnitude() != 0:
             self.direction = self.direction.normalize()
 
-        dx = (self.direction.x * speed + self.knockback.x) * dt
-        self.pos.x += dx
-        self.hitbox.x = int(self.pos.x)
-        self.collision('horizontal', dx)
-
-        dy = (self.direction.y * speed + self.knockback.y) * dt
-        self.pos.y += dy
-        self.hitbox.y = int(self.pos.y)
-        self.collision('vertical', dy)
+        total_x = (self.direction.x * speed + self.knockback.x) * dt
+        total_y = (self.direction.y * speed + self.knockback.y) * dt
+        # Sous-pas : jamais plus de 16 px par pas, pour ne pas traverser un mur
+        steps = max(1, int(max(abs(total_x), abs(total_y)) // 16) + 1)
+        sx, sy = total_x / steps, total_y / steps
+        for _ in range(steps):
+            self.pos.x += sx
+            self.hitbox.x = int(self.pos.x)
+            self.collision('horizontal', sx)
+            self.pos.y += sy
+            self.hitbox.y = int(self.pos.y)
+            self.collision('vertical', sy)
 
         self._sync_rect_from_hitbox()
 
-    # ------------------------------------------------------------------
-    # Main update (called each frame by sprite group)
-    # ------------------------------------------------------------------
     def update(self, dt=0.016):
         if dt <= 0:
             return
