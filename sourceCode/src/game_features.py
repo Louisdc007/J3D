@@ -44,7 +44,7 @@ class GameFeatures:
         self.chests = []
         self.minimap = None
         self.show_big_map = False
-        self.run = self._new_run()
+        self.run_stats = self._new_run()
         self.dt = 1 / 60
         self.ui_t = 0.0
         self.dawn_warned = False
@@ -206,9 +206,9 @@ class GameFeatures:
         fx.particles.blood(bx, by, d, 10 if not crit else 18)
         if random.random() < 0.35:
             fx.decal_blood(enemy.hitbox.centerx + random.randint(-20, 20), enemy.hitbox.bottom - random.randint(0, 20))
-        self.run['damage'] += dmg
-        if self.player.combo_step + 1 > self.run['best_combo']:
-            self.run['best_combo'] = self.player.combo_step + 1
+        self.run_stats['damage'] += dmg
+        if self.player.combo_step + 1 > self.run_stats['best_combo']:
+            self.run_stats['best_combo'] = self.player.combo_step + 1
 
     def player_hit_enemy(self, enemy):
         dmg, crit = self.player.roll_damage()
@@ -243,14 +243,14 @@ class GameFeatures:
     def on_enemy_killed_solo(self, enemy):
         self.enemy_death_fx(enemy)
         self.player.stats['kills'] = self.player.stats.get('kills', 0) + 1
-        self.run['kills'] += 1
+        self.run_stats['kills'] += 1
         if self.player.perk('vamp'):
             heal = 3 * self.player.perk('vamp')
             if self.player.health < self.player.max_health:
                 self.player.health = min(self.player.max_health, self.player.health + heal)
                 fx.text(self.player.hitbox.centerx, self.player.hitbox.top - 50, f"+{heal}", (120, 255, 140), 18, 0.6)
         if enemy.elite:
-            self.run['elites'] += 1
+            self.run_stats['elites'] += 1
             self.ui.toast(f"{enemy.name} vaincu !", GOLD)
             fx.shake(0.3)
         if isinstance(enemy, Boss):
@@ -407,7 +407,7 @@ class GameFeatures:
         p.invincibility_duration = 3000
         p.phoenix_used = False
         p.stats['expeditions'] = p.stats.get('expeditions', 0) + 1
-        self.run = self._new_run()
+        self.run_stats = self._new_run()
 
         base_tiers = ['tier1']
         if p.level >= 3: base_tiers.append('tier2')
@@ -500,8 +500,8 @@ class GameFeatures:
             self.collect_artifact()
         elif t in p.inventory:
             p.inventory[t] += 1
-            if t in self.run:
-                self.run[t] += 1
+            if t in self.run_stats:
+                self.run_stats[t] += 1
             if t == 'gold':
                 sfx('coin', 0.5, cooldown=0.05)
             elif t == 'iron':
@@ -571,7 +571,7 @@ class GameFeatures:
             e.loot_table = {'gold': (6, 12), 'iron': (8, 14), 'xp': (10, 16)}
             return
         sfx('chest')
-        self.run['chests'] += 1
+        self.run_stats['chests'] += 1
         p.stats['chests'] = p.stats.get('chests', 0) + 1
         fx.particles.emit(cx, cy - 10, 30, (255, 210, 90), speed=(80, 260), life=(0.4, 0.9), size=(2, 4),
                           gravity=300, glow=True, angle=-math.pi / 2, spread=1.6)
@@ -936,8 +936,8 @@ class GameFeatures:
     def leave_dungeon_to_hub(self):
         # Fuir par le menu revient à abandonner le butin de cette expédition
         inv = self.player.inventory
-        inv['gold'] = max(0, inv['gold'] - self.run.get('gold', 0))
-        inv['iron'] = max(0, inv['iron'] - self.run.get('iron', 0))
+        inv['gold'] = max(0, inv['gold'] - self.run_stats.get('gold', 0))
+        inv['iron'] = max(0, inv['iron'] - self.run_stats.get('iron', 0))
         self.audio.stop_all_loops()
         self.game_state = 'hub'
         self.game_time = 0
@@ -1035,7 +1035,7 @@ class GameFeatures:
                 self.screen.blit(sub, sub.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 42)))
 
     def run_report(self):
-        r = self.run
+        r = self.run_stats
         return f"+{r['gold']} or   ·   +{r['iron']} fer   ·   {r['kills']} monstres vaincus"
 
     def _draw_game_over(self):
@@ -1051,7 +1051,7 @@ class GameFeatures:
         sub = render_outlined("La cupidité a eu raison de vous... votre butin est perdu.", 24, (220, 180, 170), width=2)
         sub.set_alpha(int(255 * k))
         self.screen.blit(sub, sub.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 55)))
-        r = self.run
+        r = self.run_stats
         dur = int(time.time() - r['start'])
         stats = [("Monstres vaincus", r['kills']), ("Élites", r['elites']), ("Dégâts infligés", r['damage']),
                  ("Coffres ouverts", r['chests']), ("Temps survécu", f"{dur // 60}:{dur % 60:02d}")]
