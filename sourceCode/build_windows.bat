@@ -6,7 +6,7 @@ REM  Pré-requis : Python 3.10+, pip
 REM ============================================================
 
 echo [1/3] Installation des dependances...
-pip install pyinstaller pygame
+pip install pyinstaller pygame-ce
 
 echo [2/3] Compilation avec PyInstaller...
 pyinstaller --clean --noconfirm greed.spec

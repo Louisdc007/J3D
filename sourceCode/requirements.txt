@@ -1,2 +1,6 @@
-pygame==2.6.1
-pyinstaller==6.11.1
+# pygame-ce : fork maintenu de pygame (même API, "import pygame").
+# Il fournit des versions précompilées pour les Python récents (3.14, 3.15...)
+# là où pygame 2.6.1 doit être compilé et échoue souvent sur macOS récent.
+# Si pygame (classique) est déjà installé : pip uninstall pygame d'abord.
+pygame-ce>=2.5.8
+pyinstaller>=6.11.1

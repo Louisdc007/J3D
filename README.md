@@ -106,6 +106,10 @@ Vous incarnez un survivant qui doit explorer ce nouveau monde. Pour survivre, vo
    pip install -r sourceCode/requirements.txt
    ```
 
+   > Le jeu utilise **pygame-ce** (fork maintenu de pygame, même API), qui fournit des
+   > versions précompilées pour les Python récents. Si `pygame` classique est déjà installé,
+   > désinstallez-le d'abord (`pip uninstall pygame`) : les deux paquets entrent en conflit.
+
 4. **Lancez le jeu :**
 
    ```
